@@ -5819,10 +5819,10 @@ function FollowupModal({ dealer, existingFollowups, onClose, onSaved }) {
                         <Check size={9}/> Done
                       </button>
                     )}
-                    <button onClick={()=>handleDelete(f._id)}
+                    {/* <button onClick={()=>handleDelete(f._id)}
                       style={{background:'none',border:'none',color:'var(--t3)',cursor:'pointer',padding:3}}>
                       <Trash2 size={11}/>
-                    </button>
+                    </button> */}
                   </div>
                 </div>
               </div>

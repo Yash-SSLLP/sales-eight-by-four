@@ -279,6 +279,37 @@ import { MO, CURRENT_MONTH_IDX } from '../constants';
 import { trendPct, forecast, pct, monthTarget } from '../utils';
 
 // ── Shared canvas builder — used by both download and share ─────────────────
+// Polyfill CanvasRenderingContext2D.roundRect — missing in older Android
+// WebViews (pre-Chrome 99 / 2022) and older Safari. Without this polyfill,
+// the dealer-card Download/Share buttons silently throw TypeError mid-draw.
+// Applied once at module load and is a no-op on browsers that already have it.
+if(typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    let radii;
+    if(typeof r === 'number')      radii = [r, r, r, r];
+    else if(Array.isArray(r)){
+      if(r.length === 1) radii = [r[0], r[0], r[0], r[0]];
+      else if(r.length === 2) radii = [r[0], r[1], r[0], r[1]];
+      else if(r.length === 3) radii = [r[0], r[1], r[2], r[1]];
+      else                   radii = [r[0], r[1], r[2], r[3]];
+    } else                          radii = [0, 0, 0, 0];
+    // Clamp radii so they don't exceed half the smallest side
+    const maxR = Math.min(Math.abs(w), Math.abs(h)) / 2;
+    radii = radii.map(v => Math.max(0, Math.min(v, maxR)));
+    const [tl, tr, br, bl] = radii;
+    this.moveTo(x + tl, y);
+    this.lineTo(x + w - tr, y);
+    this.quadraticCurveTo(x + w, y, x + w, y + tr);
+    this.lineTo(x + w, y + h - br);
+    this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+    this.lineTo(x + bl, y + h);
+    this.quadraticCurveTo(x, y + h, x, y + h - bl);
+    this.lineTo(x, y + tl);
+    this.quadraticCurveTo(x, y, x + tl, y);
+    return this;
+  };
+}
+
 function buildCanvas(dealer, users, selectedMonthIdx) {
   const sm          = users[dealer.salesman];
   const viewAchieved= dealer.months[selectedMonthIdx] || 0;
@@ -539,7 +570,8 @@ const downloadDealerCard = (dealer, users, selectedMonthIdx) => {
 
   } catch(err) {
     console.error('Download failed:', err);
-    showImageOverlay(null, null, 'Could not generate image. Try again.');
+    // Surface the actual error so we can diagnose if it fails again
+    showImageOverlay(null, null, 'Could not generate image: ' + (err?.message || err));
   }
 };
 
@@ -574,6 +606,8 @@ const shareDealerCard = async (dealer, users, selectedMonthIdx) => {
 
   } catch(err) {
     console.error('Share failed:', err);
+    // Surface the error to the user so the button never feels silently broken
+    showImageOverlay(null, null, 'Could not generate share image: ' + (err?.message || err));
   }
 };
 

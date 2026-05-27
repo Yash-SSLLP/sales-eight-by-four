@@ -577,20 +577,46 @@ const isAndroidWebView = () => {
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
 
 // ── Download ─────────────────────────────────────────────────────────────────
-const downloadDealerCard = (dealer, users, selectedMonthIdx) => {
+const downloadDealerCard = async (dealer, users, selectedMonthIdx) => {
   try {
     const canvas   = buildCanvas(dealer, users, selectedMonthIdx);
     const safeName = (dealer?.name || 'dealer').replace(/[^a-z0-9]/gi,'_');
     const filename = safeName + '_' + (MO[selectedMonthIdx] || 'current') + '.png';
     const dataUrl  = canvas.toDataURL('image/png');
 
-    // Mobile (any) — anchor download unreliable, show overlay instead
+    // Inside the Capacitor APK: directly save to phone via Filesystem plugin,
+    // then show the overlay with the preview + Share button. No anchor-click
+    // tricks (which don't work in Android WebView).
+    if(isCapacitor()){
+      try {
+        const res = await saveImageToPhone(dataUrl, filename);
+        // Show overlay so user can also Share without saving twice
+        showImageOverlay(dataUrl, filename);
+        // Pre-fill status so they know it already saved
+        setTimeout(() => {
+          const s = document.getElementById('overlay-status');
+          if(s){ s.textContent = '✓ Already saved to ' + (res.where || 'phone'); s.style.color = '#86efac'; }
+          const saveBtn = document.getElementById('overlay-save-btn');
+          if(saveBtn){ saveBtn.textContent = '✓ Saved'; }
+        }, 50);
+      } catch(e){
+        // Show overlay with error so user can retry / share
+        showImageOverlay(dataUrl, filename);
+        setTimeout(() => {
+          const s = document.getElementById('overlay-status');
+          if(s){ s.textContent = 'Auto-save failed: ' + (e?.message || e) + '. Try Save button.'; s.style.color = '#fbbf24'; }
+        }, 50);
+      }
+      return;
+    }
+
+    // Mobile web (non-APK) — anchor download unreliable, show overlay
     if(isMobileDevice()) {
       showImageOverlay(dataUrl, filename);
       return;
     }
 
-    // Desktop browser — anchor click works fine
+    // Desktop browser — direct anchor download
     const link = document.createElement('a');
     link.download = filename;
     link.href = dataUrl;
@@ -600,7 +626,6 @@ const downloadDealerCard = (dealer, users, selectedMonthIdx) => {
 
   } catch(err) {
     console.error('Download failed:', err);
-    // Surface the actual error so we can diagnose if it fails again
     showImageOverlay(null, null, 'Could not generate image: ' + (err?.message || err));
   }
 };
@@ -615,36 +640,125 @@ const shareDealerCard = async (dealer, users, selectedMonthIdx) => {
     const viewTarget   = monthTarget(dealer, selectedMonthIdx);
     const p            = viewTarget?Math.round((viewAchieved/viewTarget)*100):null;
     const shareText    = (dealer?.name || 'Dealer') + ' · ' + (MO[selectedMonthIdx] || 'current') + ' · Achieved: ' + viewAchieved + '/' + (viewTarget||'—') + ' · ' + (p!==null?p+'%':'N/T');
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl      = canvas.toDataURL('image/png');
 
-    // Always try Web Share API with PNG file first
-    if(navigator.share) {
+    // Inside Capacitor APK — open native share sheet directly via plugin
+    if(isCapacitor()){
       try {
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-        const file = new File([blob], filename, {type:'image/png'});
-        if(navigator.canShare && navigator.canShare({files:[file]})) {
-          await navigator.share({ title: dealer.name + ' — Sales Report', files: [file] });
-          return;
+        const res = await shareImageFromPhone(dataUrl, filename, shareText);
+        if(res.ok) return;
+        // Share returned not-ok but no exception — fall through to overlay
+      } catch(e){
+        if(e?.name === 'AbortError') return;   // user cancelled — that's fine
+        console.warn('Direct share failed, falling back to overlay:', e?.message || e);
+      }
+    } else {
+      // Web: try Web Share API with file
+      if(navigator.share) {
+        try {
+          const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+          const file = new File([blob], filename, {type:'image/png'});
+          if(navigator.canShare && navigator.canShare({files:[file]})) {
+            await navigator.share({ title: (dealer?.name||'Dealer') + ' — Sales Report', text: shareText, files: [file] });
+            return;
+          }
+        } catch(e) {
+          if(e.name === 'AbortError') return;
+          // fall through to overlay
         }
-      } catch(e) {
-        if(e.name === 'AbortError') return;
-        // If sharing with file fails, fall through to overlay
       }
     }
 
-    // Show overlay — works everywhere, user long-presses to save/share PNG
+    // Fallback: show overlay with the image + Save / Share buttons
     showImageOverlay(dataUrl, filename);
 
   } catch(err) {
     console.error('Share failed:', err);
-    // Surface the error to the user so the button never feels silently broken
     showImageOverlay(null, null, 'Could not generate share image: ' + (err?.message || err));
   }
 };
 
+// ── Detect Capacitor (running inside the Android APK) ───────────────────────
+const isCapacitor = () =>
+  typeof window !== 'undefined' &&
+  window.Capacitor &&
+  typeof window.Capacitor.isNativePlatform === 'function' &&
+  window.Capacitor.isNativePlatform();
+
+// ── Save image to phone gallery / file system ─────────────────────────────
+async function saveImageToPhone(dataUrl, filename) {
+  const base64 = dataUrl.split(',')[1];
+
+  if(isCapacitor()){
+    // Native Android: use Capacitor Filesystem to write the PNG into the
+    // Documents folder where the user can find it via the Files app or
+    // gallery's "Recent files" section.
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    const result = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Documents,
+      recursive: true,
+    });
+    return { ok: true, uri: result.uri, where: 'Documents folder' };
+  }
+
+  // Browser: trigger normal download
+  const link = document.createElement('a');
+  link.download = filename;
+  link.href = dataUrl;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  return { ok: true, where: 'Downloads' };
+}
+
+// ── Share image via native share sheet (WhatsApp / Gmail / etc.) ──────────
+async function shareImageFromPhone(dataUrl, filename, shareText) {
+  const base64 = dataUrl.split(',')[1];
+
+  if(isCapacitor()){
+    // Native Android: write to cache, then use Capacitor Share plugin
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    const { Share }                  = await import('@capacitor/share');
+    const writeRes = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+      recursive: true,
+    });
+    await Share.share({
+      title: 'Sales Report',
+      text: shareText || '',
+      url: writeRes.uri,
+      dialogTitle: 'Share dealer report',
+    });
+    return { ok: true };
+  }
+
+  // Web: use Web Share API if available
+  if(navigator.share){
+    try {
+      const blob = await fetch(dataUrl).then(r => r.blob());
+      const file = new File([blob], filename, { type: 'image/png' });
+      if(navigator.canShare && navigator.canShare({ files: [file] })){
+        await navigator.share({ title: 'Sales Report', text: shareText || '', files: [file] });
+        return { ok: true };
+      }
+      // Fallback: share text + link only
+      await navigator.share({ title: 'Sales Report', text: shareText || '', url: dataUrl });
+      return { ok: true };
+    } catch(e) {
+      if(e.name === 'AbortError') return { ok: false, cancelled: true };
+      throw e;
+    }
+  }
+
+  return { ok: false, message: 'Share not supported in this browser. Try downloading and sharing manually.' };
+}
+
 // ── Image overlay ────────────────────────────────────────────────────────────
-// Full-screen image view — works in ALL environments including WebView APK
-// User can long-press image on Android to save, or use the buttons
+// Full-screen preview with two big working buttons: Save and Share.
 function showImageOverlay(dataUrl, filename, errorMsg) {
   const existing = document.getElementById('dealer-card-overlay');
   if(existing) existing.remove();
@@ -668,34 +782,27 @@ function showImageOverlay(dataUrl, filename, errorMsg) {
 
   if(errorMsg) {
     overlay.innerHTML =
-      '<div style="color:#f87171;font-size:14px;text-align:center;padding:20px">' + errorMsg + '</div>' +
+      '<div style="color:#f87171;font-size:14px;text-align:center;padding:20px;max-width:90%">' + errorMsg + '</div>' +
       '<button id="close-overlay-btn" style="background:#252538;color:#9492a8;border:none;padding:10px 24px;border-radius:8px;font-size:13px;margin-top:12px">Close</button>';
   } else {
-    const isAndroid = /Android/i.test(navigator.userAgent);
-
     overlay.innerHTML =
-      '<div style="color:#6366f1;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">📊 Dealer Report Card</div>' +
+      '<div style="color:#6366f1;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px">📊 Dealer Report Card</div>' +
 
-      // Instruction
-      '<div style="background:#1a1a2e;border:1px solid #6366f133;border-radius:8px;padding:10px 14px;margin-bottom:12px;max-width:400px;text-align:center">' +
-        '<div style="color:#e2e0f0;font-size:13px;font-weight:600;margin-bottom:4px">' +
-          (isAndroid ? '📱 Long-press image → Save / Share' : '👆 Long-press image to Save or Share') +
-        '</div>' +
-        '<div style="color:#55546a;font-size:11px">The image is your dealer PNG report</div>' +
-      '</div>' +
-
-      // Image — MUST have context menu enabled for long-press save
-      '<div style="width:100%;max-width:560px;border-radius:10px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.8)">' +
+      // Image preview
+      '<div style="width:100%;max-width:560px;border-radius:10px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.8);margin-bottom:14px">' +
         '<img src="' + dataUrl + '" style="width:100%;display:block;" />' +
       '</div>' +
 
-      // Buttons
-      '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center">' +
-        '<button id="overlay-share-btn" style="background:#6366f1;color:#fff;border:none;padding:12px 24px;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer">⬆ Share PNG</button>' +
-        '<button id="close-overlay-btn" style="background:#252538;color:#9492a8;border:1px solid #252548;padding:12px 24px;border-radius:9px;font-size:14px;cursor:pointer">✕ Close</button>' +
+      // BIG action buttons — direct save and share, no long-press needed
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%;max-width:560px">' +
+        '<button id="overlay-save-btn" style="flex:1 1 160px;background:#22c55e;color:#0c0c1e;border:none;padding:14px 20px;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">⬇ Save to Phone</button>' +
+        '<button id="overlay-share-btn" style="flex:1 1 160px;background:#6366f1;color:#fff;border:none;padding:14px 20px;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">⬆ Share</button>' +
       '</div>' +
+      '<button id="close-overlay-btn" style="background:transparent;color:#9492a8;border:1px solid #252548;padding:10px 24px;border-radius:9px;font-size:13px;cursor:pointer;margin-top:10px">✕ Close</button>' +
 
-      '<div style="color:#3a3a50;font-size:10px;margin-top:8px">' + (filename||'') + '</div>';
+      // Status message area (replaces error text on action)
+      '<div id="overlay-status" style="color:#86efac;font-size:12px;margin-top:10px;min-height:18px;text-align:center"></div>' +
+      '<div style="color:#3a3a50;font-size:10px;margin-top:4px">' + (filename||'') + '</div>';
   }
 
   document.body.appendChild(overlay);
@@ -703,42 +810,63 @@ function showImageOverlay(dataUrl, filename, errorMsg) {
   // Close handlers
   const closeBtn = document.getElementById('close-overlay-btn');
   if(closeBtn) closeBtn.addEventListener('click', () => overlay.remove());
-  overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
+  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove(); });
 
-  // Share button — tries Web Share API, else keeps overlay open
-  const shareBtn = document.getElementById('overlay-share-btn');
-  if(shareBtn && dataUrl) {
-    shareBtn.addEventListener('click', async () => {
-      shareBtn.textContent = '⏳ Preparing...';
-      shareBtn.disabled = true;
+  if(!dataUrl) return;
+
+  const statusEl = document.getElementById('overlay-status');
+  const setStatus = (text, color) => {
+    if(statusEl){ statusEl.textContent = text; statusEl.style.color = color || '#86efac'; }
+  };
+
+  // ── SAVE button ───────────────────────────────────────────────────────
+  const saveBtn = document.getElementById('overlay-save-btn');
+  if(saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      const originalText = saveBtn.textContent;
+      saveBtn.textContent = '⏳ Saving…';
       try {
-        // Convert dataUrl → blob → File for sharing as real PNG
-        const res  = await fetch(dataUrl);
-        const blob = await res.blob();
-        const file = new File([blob], filename||'dealer_report.png', {type:'image/png'});
-
-        if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
-          await navigator.share({ title:'Sales Report', files:[file] });
-          shareBtn.textContent = '✓ Shared!';
-        } else if(navigator.share) {
-          // Share without file — open text share
-          await navigator.share({ title:'Sales Report - ' + (filename||''), url: dataUrl });
-          shareBtn.textContent = '✓ Shared!';
-        } else {
-          // No Web Share API — guide user
-          shareBtn.textContent = '👆 Long-press image above';
-          shareBtn.style.background = '#252538';
+        const res = await saveImageToPhone(dataUrl, filename || 'dealer_report.png');
+        if(res.ok){
+          saveBtn.textContent = '✓ Saved';
+          setStatus('Saved to ' + (res.where || 'your phone') + ' — open the Files app to find ' + (filename || ''), '#86efac');
         }
       } catch(e) {
-        if(e.name === 'AbortError') {
-          shareBtn.textContent = '⬆ Share PNG';
-        } else {
-          shareBtn.textContent = '👆 Long-press image above';
-          shareBtn.style.background = '#252538';
-          shareBtn.style.color = '#9492a8';
-        }
+        console.error('Save failed:', e);
+        setStatus('Save failed: ' + (e?.message || e), '#fca5a5');
+        saveBtn.textContent = originalText;
+      } finally {
+        saveBtn.disabled = false;
       }
-      shareBtn.disabled = false;
+    });
+  }
+
+  // ── SHARE button ──────────────────────────────────────────────────────
+  const shareBtn = document.getElementById('overlay-share-btn');
+  if(shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      shareBtn.disabled = true;
+      const originalText = shareBtn.textContent;
+      shareBtn.textContent = '⏳ Opening share…';
+      try {
+        const res = await shareImageFromPhone(dataUrl, filename || 'dealer_report.png', '');
+        if(res.ok){
+          shareBtn.textContent = '✓ Shared';
+          setStatus('Share opened. Pick WhatsApp, Gmail, etc.', '#a5b4fc');
+        } else if(res.cancelled){
+          shareBtn.textContent = originalText;
+        } else {
+          setStatus(res.message || 'Share not supported here. Use Save and share the file manually.', '#fbbf24');
+          shareBtn.textContent = originalText;
+        }
+      } catch(e) {
+        console.error('Share failed:', e);
+        setStatus('Share failed: ' + (e?.message || e), '#fca5a5');
+        shareBtn.textContent = originalText;
+      } finally {
+        shareBtn.disabled = false;
+      }
     });
   }
 }

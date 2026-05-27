@@ -311,14 +311,42 @@ if(typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.
 }
 
 function buildCanvas(dealer, users, selectedMonthIdx) {
-  const sm          = users[dealer.salesman];
+  // Defensive defaults so the canvas always builds, even if the dealer
+  // object is missing the months array or other fields (e.g. dealers added
+  // via inline form, partial cache, or DB rows from before months[] existed).
+  // Without these, code like `dealer.months.slice(...)` throws and the
+  // Download/Share buttons silently fail with "Cannot read .slice of undefined".
+  if(!dealer) throw new Error('No dealer data');
+  const safeDealer = {
+    ...dealer,
+    name:         dealer.name || 'Unknown Dealer',
+    status:       dealer.status || '',
+    zone:         dealer.zone || '',
+    city:         dealer.city || '',
+    state:        dealer.state || '',
+    category:     dealer.category || '',
+    categoryType: dealer.categoryType || '',
+    salesman:     dealer.salesman || '',
+    avg6m:        Number(dealer.avg6m) || 0,
+    creditDays:   Number(dealer.creditDays) || 0,
+    creditLimit:  Number(dealer.creditLimit) || 0,
+    months:       Array.isArray(dealer.months) ? dealer.months : new Array(MO.length).fill(0),
+    monthTargets: dealer.monthTargets || {},
+    monthlyData:  dealer.monthlyData || {},
+    target:       Number(dealer.target) || 0,
+  };
+  // Make sure months[] has at least MO.length entries (pad with 0s if short)
+  while(safeDealer.months.length < MO.length) safeDealer.months.push(0);
+  dealer = safeDealer;
+
+  const sm          = users?.[dealer.salesman];
   const viewAchieved= dealer.months[selectedMonthIdx] || 0;
   // Smart per-month target (see utils.monthTarget)
   const viewTarget  = monthTarget(dealer, selectedMonthIdx);
   const p           = viewTarget ? Math.round((viewAchieved/viewTarget)*100) : null;
   const tp          = trendPct(dealer.months);
   const fc          = forecast(dealer.months);
-  const total       = dealer.months.reduce((a,b)=>a+b,0);
+  const total       = dealer.months.reduce((a,b)=>a+(Number(b)||0),0);
 
   // Canvas tall enough for: header + KPIs + bar chart + monthly table + footer
   const W = 1000, H = 1050;
@@ -551,7 +579,8 @@ const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
 const downloadDealerCard = (dealer, users, selectedMonthIdx) => {
   try {
     const canvas   = buildCanvas(dealer, users, selectedMonthIdx);
-    const filename = dealer.name.replace(/[^a-z0-9]/gi,'_') + '_' + MO[selectedMonthIdx] + '.png';
+    const safeName = (dealer?.name || 'dealer').replace(/[^a-z0-9]/gi,'_');
+    const filename = safeName + '_' + (MO[selectedMonthIdx] || 'current') + '.png';
     const dataUrl  = canvas.toDataURL('image/png');
 
     // Mobile (any) — anchor download unreliable, show overlay instead
@@ -579,11 +608,12 @@ const downloadDealerCard = (dealer, users, selectedMonthIdx) => {
 const shareDealerCard = async (dealer, users, selectedMonthIdx) => {
   try {
     const canvas       = buildCanvas(dealer, users, selectedMonthIdx);
-    const filename     = dealer.name.replace(/[^a-z0-9]/gi,'_') + '_' + MO[selectedMonthIdx] + '.png';
-    const viewAchieved = dealer.months[selectedMonthIdx]||0;
+    const safeName     = (dealer?.name || 'dealer').replace(/[^a-z0-9]/gi,'_');
+    const filename     = safeName + '_' + (MO[selectedMonthIdx] || 'current') + '.png';
+    const viewAchieved = (Array.isArray(dealer?.months) ? dealer.months[selectedMonthIdx] : 0) || 0;
     const viewTarget   = monthTarget(dealer, selectedMonthIdx);
     const p            = viewTarget?Math.round((viewAchieved/viewTarget)*100):null;
-    const shareText    = dealer.name + ' · ' + MO[selectedMonthIdx] + ' · Achieved: ' + viewAchieved + '/' + (viewTarget||'—') + ' · ' + (p!==null?p+'%':'N/T');
+    const shareText    = (dealer?.name || 'Dealer') + ' · ' + (MO[selectedMonthIdx] || 'current') + ' · Achieved: ' + viewAchieved + '/' + (viewTarget||'—') + ' · ' + (p!==null?p+'%':'N/T');
     const dataUrl = canvas.toDataURL('image/png');
 
     // Always try Web Share API with PNG file first

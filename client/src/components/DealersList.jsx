@@ -1315,7 +1315,7 @@ const DealersList=({dealers,currentUser,users,onEdit,onDelete,onAdd,selected,set
   const {selectedMonthIdx, MO:ctxMO}=useMonth();
   const MO = ctxMO || MO_CONST;
   const selMoLabel=MO[selectedMonthIdx].slice(0,3);
-  const isAdmin=currentUser.role==='admin';
+  const isAdmin=currentUser.role==='admin'||currentUser.role==='superadmin';
   const [viewMode,setViewMode]=useState('table'); // 'table' | 'kanban'
   const [filters,setFilters]=useState({q:'',zone:[],status:[],sm:[],credit:'',minPct:'',maxPct:'',city:[],state:[],category:[],categoryType:[]});
   const [sort,setSort]=useState({col:'name',dir:1});

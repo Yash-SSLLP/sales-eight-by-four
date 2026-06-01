@@ -10,7 +10,7 @@ const MonthlyTrend=({dealers,currentUser,users,onOpenDealer})=>{
   const {selectedMonthIdx, MO:ctxMO}=useMonth();
   const MO = ctxMO || MO_CONST;
   const [filter,setFilter]=useState('all');
-  const isAdmin=currentUser.role==='admin';
+  const isAdmin=currentUser.role==='admin'||currentUser.role==='superadmin';
   const baseFiltered=useMemo(()=>filter==='all'?dealers:dealers.filter(x=>x.salesman===filter),[dealers,filter]);
   const totals=MO.map((_,i)=>baseFiltered.reduce((s,x)=>s+(x.months[i]||0),0));
   const showStacked=isAdmin&&filter==='all';

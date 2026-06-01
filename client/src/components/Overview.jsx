@@ -1448,7 +1448,7 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
           {selectedMonthIdx!==CURRENT_MONTH_IDX&&<span style={{marginLeft:8,background:'rgba(251,191,36,0.15)',color:'#fbbf24',padding:'2px 8px',borderRadius:4,fontSize:10}}>HISTORICAL VIEW</span>}
         </div>
         <div style={{fontSize:24,fontWeight:700,letterSpacing:'-0.02em'}}>
-          {currentUser.role==='admin'?'All Territories':'Your Territory'} — Overview
+          {(currentUser.role==='admin'||currentUser.role==='superadmin')?'All Territories':'Your Territory'} — Overview
         </div>
       </div>
 
@@ -1796,7 +1796,7 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
                     <div style={{fontSize:20,fontWeight:700,color:cardClr}}>{spct(x.target,x.achieved)}</div>
                     <div style={{fontSize:11,color:'var(--t3)',marginTop:2}}>{x.achieved}/{x.target} units</div>
                     {x.category&&<div style={{fontSize:10,color:'var(--t3)',marginTop:2}}>{x.category}</div>}
-                    {currentUser.role==='admin'&&sm&&<div style={{fontSize:10,color:'var(--t3)',marginTop:2,display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:'50%',background:sm.color}}/>{sm.name}</div>}
+                    {(currentUser.role==='admin'||currentUser.role==='superadmin')&&sm&&<div style={{fontSize:10,color:'var(--t3)',marginTop:2,display:'flex',alignItems:'center',gap:4}}><span style={{width:6,height:6,borderRadius:'50%',background:sm.color}}/>{sm.name}</div>}
                     <div style={{marginTop:6}}><MiniBars months={x.months} highlightIdx={selectedMonthIdx}/></div>
                   </div>
                 );
@@ -1816,7 +1816,7 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
             <Search size={13} style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:'var(--t3)'}}/>
             <input className="inp" style={{width:200,paddingLeft:30,fontSize:12}} placeholder="Quick search..." value={overviewSearch} onChange={e=>setOverviewSearch(e.target.value)}/>
           </div>
-          {currentUser.role==='admin'&&(
+          {(currentUser.role==='admin'||currentUser.role==='superadmin')&&(
             <MultiSelect options={Object.values(users).filter(u=>u.role==='salesman').map(s=>s.id)} selected={overviewSm?[overviewSm]:[]}
               onChange={v=>setOverviewSm(v.length?v[v.length-1]:'')} placeholder="All Salesmen"
               renderOption={id=>{const s=users[id];return s?<div style={{display:'flex',alignItems:'center',gap:6}}><Avatar user={s} size={18}/><span style={{fontSize:12}}>{s.name}</span></div>:<span>{id}</span>;}}/>

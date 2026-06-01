@@ -699,7 +699,7 @@ const MODES = [
 export default function UploadMonth({ users, currentUser, onSuccess }) {
   const { MO:ctxMO, currentMonthIdx } = useMonth();
   const MO     = ctxMO || MO_DEFAULT;
-  const isAdmin= currentUser?.role === 'admin';
+  const isAdmin= currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
 
   const [mode, setMode]         = useState('monthly');
   const [file, setFile]         = useState(null);

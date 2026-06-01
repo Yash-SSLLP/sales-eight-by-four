@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
+import { confirmDialog } from './Toast';
 
 const BulkActionModal=({action,selected,dealers,users,onApply,onClose})=>{
   const [val,setVal]=useState('');
-  const handle=()=>{
-    if(action==='delete'){if(!confirm(`Delete ${selected.length} dealers?`))return;onApply({type:'delete'});}
+  const handle=async ()=>{
+    if(action==='delete'){
+      const ok = await confirmDialog({ title:`Delete ${selected.length} dealers?`, message:'This cannot be undone.', confirmText:'Delete', danger:true });
+      if(!ok) return;
+      onApply({type:'delete'});
+    }
     else if(action==='status'&&val)onApply({type:'status',value:val});
     else if(action==='salesman'&&val)onApply({type:'salesman',value:val});
     else return;

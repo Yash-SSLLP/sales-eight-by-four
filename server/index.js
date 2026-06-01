@@ -181,12 +181,46 @@ app.use((err, req, res, next) => {
   res.status(err.status||500).json({ error: err.message||'Server error' });
 });
 
+// Always ensure there is at least one superadmin in the DB. If the DB is
+// fresh, we insert the full seed list (including 'super'). If the DB already
+// has users (from earlier runs) but no superadmin, we upsert 'super' so the
+// user always has a way to access the Login-as feature.
+const ensureSuperAdmin = async (User) => {
+  try {
+    const existing = await User.findOne({ role: 'superadmin' });
+    if(existing) {
+      console.log(`✅ Superadmin already exists: ${existing.id}`);
+      return;
+    }
+    // Promote built-in 'admin' to superadmin if present (preserves their pass).
+    const admin = await User.findOne({ id: 'admin' });
+    if(admin) {
+      admin.role = 'superadmin';
+      await admin.save();
+      console.log(`✅ Promoted built-in 'admin' to superadmin (pass unchanged)`);
+      return;
+    }
+    // Otherwise create a fresh 'super' account.
+    await User.create({
+      id:'super', name:'Super Admin', pass:'super123',
+      role:'superadmin', color:'#fbbf24', ini:'SA',
+    });
+    console.log(`✅ Created default superadmin → id: 'super', pass: 'super123' (change after first login!)`);
+  } catch(e){ console.warn('ensureSuperAdmin failed:', e.message); }
+};
+
 const seedUsers = async () => {
   try {
     const User = mongoose.models.User || (await import('./models/User.js')).default;
     const count = await User.countDocuments();
-    if(count > 0) { console.log(`✅ ${count} users already in DB`); return; }
+    if(count > 0) {
+      console.log(`✅ ${count} users already in DB`);
+      // Even for an existing DB, make sure a superadmin exists.
+      await ensureSuperAdmin(User);
+      return;
+    }
     await User.insertMany([
+      { id:'super',   name:'Super Admin',    pass:'super123',   role:'superadmin', color:'#fbbf24', ini:'SA' },
       { id:'admin',   name:'Admin',          pass:'admin123',   role:'admin',    color:'#a78bfa', ini:'AD',
         url_outstanding:'https://docs.google.com/spreadsheets/d/e/2PACX-1vSyKY3E32V3A_oVe-TLBVFTA_j5-z-mln0hcuUlzt1xM5LAwxpbFY3SoWKrNyKkVKvC0GN_Q6rc2HbP/pub?gid=1616327765&single=true&output=csv' },
       { id:'pranav',  name:'Pranav',         pass:'pranav123',  role:'salesman', color:'#818cf8', ini:'PR', url:'https://docs.google.com/spreadsheets/d/e/2PACX-1vSyKY3E32V3A_oVe-TLBVFTA_j5-z-mln0hcuUlzt1xM5LAwxpbFY3SoWKrNyKkVKvC0GN_Q6rc2HbP/pub?gid=851104587&single=true&output=csv' },

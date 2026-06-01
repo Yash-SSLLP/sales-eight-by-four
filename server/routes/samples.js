@@ -35,11 +35,14 @@ router.get('/', protect, async (req, res) => {
   } catch(e){ res.status(500).json({ error:e.message }); }
 });
 
+// Staff = admin OR superadmin (both see all sample records)
+const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
 // GET /api/samples/given — get all given records
 router.get('/given', protect, async (req, res) => {
   try {
     const filter = {};
-    if(req.user.role !== 'admin') filter.salesman = req.user.id;
+    if(!isStaff(req)) filter.salesman = req.user.id;
     if(req.query.dealerName) filter.dealerName = new RegExp(req.query.dealerName, 'i');
     if(req.query.zone) filter.zone = req.query.zone;
     const given = await SampleGiven.find(filter).sort({ createdAt:-1 });
@@ -69,7 +72,7 @@ router.delete('/given/:id', protect, async (req, res) => {
   try {
     const rec = await SampleGiven.findById(req.params.id);
     if(!rec) return res.status(404).json({ error:'Not found' });
-    if(req.user.role !== 'admin' && rec.givenBy !== req.user.id)
+    if(!isStaff(req) && rec.givenBy !== req.user.id)
       return res.status(403).json({ error:'Not allowed' });
     await SampleGiven.findByIdAndDelete(req.params.id);
     res.json({ ok:true });

@@ -11,7 +11,16 @@ export const protect = (req, res, next) => {
   }
 };
 
+// Accept BOTH admin and superadmin everywhere we previously accepted "admin".
+// This keeps existing routes working while adding superadmin as the elevated tier.
 export const adminOnly = (req, res, next) => {
-  if(req.user?.role !== 'admin') return res.status(403).json({ error:'Admins only' });
+  const role = req.user?.role;
+  if(role !== 'admin' && role !== 'superadmin') return res.status(403).json({ error:'Admins only' });
+  next();
+};
+
+// New: superadmin-only routes (impersonation, managing admins, etc.)
+export const superAdminOnly = (req, res, next) => {
+  if(req.user?.role !== 'superadmin') return res.status(403).json({ error:'Superadmin only' });
   next();
 };

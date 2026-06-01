@@ -15,9 +15,12 @@ const noteSchema = new mongoose.Schema({
 
 const Note = mongoose.models.Note || mongoose.model('Note', noteSchema);
 
+// Staff = admin OR superadmin (both see all notes)
+const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
 router.get('/', protect, async (req,res) => {
   try {
-    if(req.user.role==='admin') return res.json(await Note.find({}).sort({createdAt:-1}));
+    if(isStaff(req)) return res.json(await Note.find({}).sort({createdAt:-1}));
     const Dealer = mongoose.models.Dealer;
     if(!Dealer) return res.json([]);
     const myDealers = await Dealer.find({salesman:req.user.id},'_id').lean();

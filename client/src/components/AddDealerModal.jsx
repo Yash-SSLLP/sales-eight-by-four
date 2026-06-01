@@ -24,7 +24,7 @@ const AddDealerModal = ({users, currentUser, onAdd, onClose, MO:propMO}) => {
   const [d, setD] = useState({
     name:'', zone:'', status:'ACTIVE', city:'', state:'',
     category:'', categoryType:'',
-    salesman: currentUser.role==='admin'
+    salesman: (currentUser.role==='admin'||currentUser.role==='superadmin')
       ? (Object.values(users).find(u=>u.role==='salesman')?.id || '')
       : currentUser.id,
     target:0, achieved:0, creditDays:0, creditLimit:0,
@@ -138,7 +138,7 @@ const AddDealerModal = ({users, currentUser, onAdd, onClose, MO:propMO}) => {
             <input className="inp" value={d.categoryType} onChange={e=>set('categoryType',e.target.value)} placeholder="e.g. 1 MM"/>
           </Field>
 
-          {currentUser.role==='admin'&&(
+          {(currentUser.role==='admin'||currentUser.role==='superadmin')&&(
             <Field label="Assign to Salesman" full>
               <select className="inp" value={d.salesman} onChange={e=>set('salesman',e.target.value)}>
                 {Object.values(users).filter(u=>u.role==='salesman').map(u=>(

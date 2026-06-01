@@ -8553,13 +8553,14 @@ import SamplesTab from './SamplesTab';
 import { useMonth } from '../context';
 import { StatusBadge, Avatar, KPI } from './UI';
 import { downloadDealerCard, shareDealerCard } from './dealerCard';
+import { notify, confirmDialog } from './Toast';
 import { Layers } from 'lucide-react';
 
 const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAddNote,onUpdateNote,onDeleteNote,onLog,outstandingData=[],outFollowups=[],onFollowupSaved})=>{
   const {selectedMonthIdx,MO:ctxMO}=useMonth();
   const MO=ctxMO||MO_CONST;
   const selMoLabel=MO[selectedMonthIdx].slice(0,3);
-  const isAdmin=currentUser.role==='admin';
+  const isAdmin=currentUser.role==='admin'||currentUser.role==='superadmin';
   const [tab,setTab]=useState('overview');
   const [showFuModal,setShowFuModal]=useState(false);
   const [fuDate,setFuDate]=useState(new Date().toISOString().slice(0,10));
@@ -8658,7 +8659,7 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
       setFuComment(''); setFuAmount('');
       setShowFuModal(false);
       await refreshFollowups();
-    } catch(e){ alert('Failed: '+e.message); }
+    } catch(e){ notify.error('Failed: '+e.message); }
     setFuSaving(false);
   };
 
@@ -8670,7 +8671,8 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
   };
 
   const deleteFollowup = async (id) => {
-    if(!confirm('Delete follow-up?')) return;
+    const okDel = await confirmDialog({ title:'Delete follow-up?', confirmText:'Delete', danger:true });
+    if(!okDel) return;
     try {
       await api.deleteFollowup(id);
       await refreshFollowups();
@@ -8878,8 +8880,8 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
             </div>
             <div className="field"><label>City</label><input className="inp" value={edit.city} onChange={e=>setEdit({...edit,city:e.target.value})} placeholder="e.g. Bengaluru"/></div>
             <div className="field"><label>State</label><input className="inp" value={edit.state} onChange={e=>setEdit({...edit,state:e.target.value})} placeholder="e.g. Karnataka"/></div>
-            <div className="field"><label>Category</label><input className="inp" value={edit.category} onChange={e=>setEdit({...edit,category:e.target.value})} placeholder="e.g. Laminate"/></div>
-            <div className="field"><label>Category Type</label><input className="inp" value={edit.categoryType} onChange={e=>setEdit({...edit,categoryType:e.target.value})} placeholder="e.g. 1mm"/></div>
+             {/* <div className="field"><label>Category</label><input className="inp" value={edit.category} onChange={e=>setEdit({...edit,category:e.target.value})} placeholder="e.g. Laminate"/></div> */}
+            {/* <div className="field"><label>Category Type</label><input className="inp" value={edit.categoryType} onChange={e=>setEdit({...edit,categoryType:e.target.value})} placeholder="e.g. 1mm"/></div> */}
             {isAdmin&&(
               <div className="field"><label>Salesman</label>
                 <select className="sel inp" value={edit.salesman} onChange={e=>setEdit({...edit,salesman:e.target.value})}>

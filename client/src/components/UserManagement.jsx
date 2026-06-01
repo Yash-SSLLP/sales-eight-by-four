@@ -1,57 +1,274 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, UserPlus, LogIn, KeyRound, Link as LinkIcon, Trash2, Shield, ShieldCheck } from 'lucide-react';
 import { Avatar } from './UI';
+import { api } from '../api';
+import { notify, confirmDialog } from './Toast';
 
-const UserManagement=({users,setUsers,onClose})=>{
-  const [name,setName]=useState(''),[id,setId]=useState(''),[pass,setPass]=useState(''),[url,setUrl]=useState(''),[color,setColor]=useState('#818cf8');
-  const colors=['#818cf8','#34d399','#f472b6','#fb923c','#fbbf24','#22d3ee','#e879f9','#a78bfa','#f87171','#4ade80'];
-  const create=()=>{
-    const idC=id.trim().toLowerCase().replace(/\s+/g,'_');
-    if(!name||!idC||!pass){alert('Name, username and password required');return;}
-    if(pass.length<4){alert('Min 4 character password');return;}
-    if(users[idC]){alert('Username already exists');return;}
-    setUsers({...users,[idC]:{id:idC,name,pass,role:'salesman',color,ini:name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),url:url.trim()||null}});
-    setName('');setId('');setPass('');setUrl('');
-    alert('Account created!\nUsername: '+idC+'\nPassword: '+pass);
+// Note: `setUsers` updates the client-side users map; `onLoginAs(token, user, impersonatedBy?)`
+// is used by the superadmin "Login as" feature to swap the active JWT.
+const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) => {
+  const [name,    setName]    = useState('');
+  const [id,      setId]      = useState('');
+  const [pass,    setPass]    = useState('');
+  const [role,    setRole]    = useState('salesman');
+  const [url,     setUrl]     = useState('');
+  const [color,   setColor]   = useState('#818cf8');
+  const [busy,    setBusy]    = useState(false);
+  const [msg,     setMsg]     = useState(null);
+
+  const colors = ['#818cf8','#34d399','#f472b6','#fb923c','#fbbf24','#22d3ee','#e879f9','#a78bfa','#f87171','#4ade80'];
+
+  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const isAdmin      = currentUser?.role === 'admin';
+
+  const flash = (type, text, ms = 3000) => { setMsg({type, text}); setTimeout(()=>setMsg(null), ms); };
+
+  // ── Create user (calls server) ──────────────────────────────────────────
+  const create = async () => {
+    const idC = id.trim().toLowerCase().replace(/\s+/g, '_');
+    if(!name || !idC || !pass){ flash('error','Name, username and password required'); return; }
+    if(pass.length < 4){ flash('error','Password min 4 characters'); return; }
+    if(users[idC]){ flash('error','Username already exists'); return; }
+    if(!isSuperAdmin && (role === 'admin' || role === 'superadmin')){
+      flash('error', 'Only superadmin can create admins or superadmins');
+      return;
+    }
+    setBusy(true);
+    try {
+      const ini = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+      const newUser = await api.createUser({ id: idC, name, pass, role, color, ini });
+      // Update local users map so UI refreshes
+      setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null } });
+      setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman');
+      flash('success', 'Created ' + name + ' (' + idC + '). Password: ' + pass);
+    } catch(e){
+      flash('error', 'Create failed: ' + e.message);
+    } finally { setBusy(false); }
   };
-  const reset=uid=>{const np=prompt('New password for '+users[uid]?.name+':');if(!np||np.length<4){if(np!==null)alert('Min 4 chars');return;}setUsers({...users,[uid]:{...users[uid],pass:np}});alert('Password updated ✓');};
-  const editUrl=uid=>{const np=prompt('Sheet CSV URL for '+users[uid]?.name+' (blank to remove):',users[uid]?.url||'');if(np===null)return;setUsers({...users,[uid]:{...users[uid],url:np.trim()||null}});};
-  const remove=uid=>{if(!confirm('Remove '+users[uid]?.name+'?'))return;const u={...users};delete u[uid];setUsers(u);};
-  const sms=Object.values(users).filter(u=>u.role==='salesman');
-  return(
-    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal" style={{maxWidth:600}}>
-        <div className="row" style={{marginBottom:18}}>
-          <div style={{fontSize:17,fontWeight:700}}>User Management</div>
+
+  // ── Edit a user (password, URL) ─────────────────────────────────────────
+  const reset = async (uid) => {
+    const np = prompt('New password for ' + users[uid]?.name + ':');
+    if(!np || np.length < 4){ if(np !== null) notify.error('Password must be at least 4 characters'); return; }
+    try {
+      await api.updateUser(uid, { pass: np });
+      setUsers({ ...users, [uid]: { ...users[uid], pass: np } });
+      flash('success', 'Password updated for ' + users[uid]?.name);
+    } catch(e){ flash('error', 'Reset failed: ' + e.message); }
+  };
+
+  const editUrl = async (uid) => {
+    const np = prompt('Sheet CSV URL for ' + users[uid]?.name + ' (blank to remove):', users[uid]?.url || '');
+    if(np === null) return;
+    try {
+      await api.updateUser(uid, { url: np.trim() || null });
+      setUsers({ ...users, [uid]: { ...users[uid], url: np.trim() || null } });
+      flash('success', 'Sheet URL updated');
+    } catch(e){ flash('error', 'Update failed: ' + e.message); }
+  };
+
+  // ── Remove user ─────────────────────────────────────────────────────────
+  const remove = async (uid) => {
+    if(uid === currentUser?.id){ flash('error', "Can't delete yourself"); return; }
+    const okRm = await confirmDialog({ title:'Remove ' + (users[uid]?.name || 'user') + '?', message:'This cannot be undone.', confirmText:'Remove', danger:true });
+    if(!okRm) return;
+    try {
+      await api.deleteUser(uid);
+      const u = { ...users }; delete u[uid]; setUsers(u);
+      flash('success', 'Removed ' + uid);
+    } catch(e){ flash('error', 'Delete failed: ' + e.message); }
+  };
+
+  // ── Login as another user (superadmin only) ─────────────────────────────
+  const loginAs = async (uid) => {
+    if(!isSuperAdmin) return;
+    if(uid === currentUser?.id) return;
+    const okLA = await confirmDialog({
+      title: 'Login as ' + (users[uid]?.name || 'user') + '?',
+      message: 'You will see exactly what they see. Use the banner at the top to return to your account at any time.',
+      confirmText: 'Login as ' + (users[uid]?.name || 'user'),
+    });
+    if(!okLA) return;
+    try {
+      const res = await api.impersonate(uid);
+      onLoginAs?.(res.token, res.user, {
+        id: currentUser.id,
+        name: currentUser.name,
+        ini: currentUser.ini,
+        color: currentUser.color,
+      });
+    } catch(e){
+      flash('error', 'Login-as failed: ' + e.message);
+    }
+  };
+
+  // Allowed roles in the create form
+  const createRoleOptions = isSuperAdmin
+    ? [
+        { v:'salesman',   label:'Salesman' },
+        { v:'admin',      label:'Admin' },
+        { v:'superadmin', label:'Superadmin' },
+      ]
+    : [
+        { v:'salesman', label:'Salesman' },
+      ];
+
+  // Group users for clearer display
+  const sorted = Object.values(users || {}).sort((a, b) => {
+    const order = { superadmin: 0, admin: 1, salesman: 2 };
+    const aR = order[a.role] ?? 3, bR = order[b.role] ?? 3;
+    if(aR !== bR) return aR - bR;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  const roleBadge = (r) => {
+    if(r === 'superadmin') return { label:'SUPERADMIN', color:'#fbbf24', bg:'rgba(251,191,36,0.12)', icon:ShieldCheck };
+    if(r === 'admin')      return { label:'ADMIN',      color:'#a5b4fc', bg:'rgba(99,102,241,0.12)', icon:Shield };
+    return                       { label:'SALESMAN',   color:'#86efac', bg:'rgba(34,197,94,0.12)', icon:null };
+  };
+
+  // Can the current user manage this row's user?
+  const canManage = (target) => {
+    if(target.id === currentUser?.id) return true; // can always edit self
+    if(isSuperAdmin) return true;
+    if(isAdmin && target.role === 'salesman') return true;
+    return false;
+  };
+
+  return (
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{maxWidth:720}}>
+        <div className="row" style={{marginBottom:14}}>
+          <div style={{fontSize:17, fontWeight:700, display:'flex', alignItems:'center', gap:8}}>
+            <UserPlus size={16}/> User Management
+          </div>
+          <span style={{
+            fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:4,
+            background: roleBadge(currentUser?.role).bg,
+            color: roleBadge(currentUser?.role).color,
+          }}>
+            You: {roleBadge(currentUser?.role).label}
+          </span>
           <div className="spacer"/>
           <button onClick={onClose} className="btn"><X size={14}/></button>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:240,overflowY:'auto',marginBottom:16}}>
-          <div style={{display:'flex',alignItems:'center',gap:10,padding:10,background:'var(--bg2)',borderRadius:8}}>
-            <Avatar user={users.admin} size={28}/>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>Admin</div><div style={{fontSize:11,color:'var(--t3)'}}>Administrator</div></div>
-            <button className="btn" style={{fontSize:11,padding:'4px 10px'}} onClick={()=>reset('admin')}>Reset Pass</button>
-          </div>
-          {sms.map(s=>(
-            <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,padding:10,background:'var(--bg2)',borderRadius:8}}>
-              <Avatar user={s} size={28}/>
-              <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600}}>{s.name}</div><div style={{fontSize:11,color:'var(--t3)'}}>{s.id} · {s.url?<span style={{color:'#34d399'}}>Sheet ✓</span>:<span style={{color:'#fbbf24'}}>No sheet</span>}</div></div>
-              <button className="btn" style={{fontSize:11,padding:'4px 8px'}} onClick={()=>editUrl(s.id)}>URL</button>
-              <button className="btn" style={{fontSize:11,padding:'4px 8px'}} onClick={()=>reset(s.id)}>Reset</button>
-              <button className="btnd" style={{fontSize:11}} onClick={()=>remove(s.id)}>Remove</button>
-            </div>
-          ))}
+
+        {msg && (
+          <div style={{
+            padding:'8px 12px', borderRadius:6, marginBottom:10, fontSize:12,
+            background: msg.type === 'success' ? 'rgba(34,197,94,0.10)' : 'rgba(248,113,113,0.10)',
+            border: '1px solid ' + (msg.type === 'success' ? '#15803d' : '#7f1d1d'),
+            color:  msg.type === 'success' ? '#86efac' : '#fca5a5',
+          }}>{msg.text}</div>
+        )}
+
+        {/* ── User list ─────────────────────────────────────────────────── */}
+        <div style={{display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto', marginBottom:16}}>
+          {sorted.map(u => {
+            const isSelf = u.id === currentUser?.id;
+            const rb = roleBadge(u.role);
+            const RoleIcon = rb.icon;
+            return (
+              <div key={u.id} style={{
+                display:'flex', alignItems:'center', gap:10,
+                padding:'10px 12px', background:'var(--bg2)', borderRadius:8,
+                border: isSelf ? '1px solid var(--acc)' : '1px solid transparent',
+              }}>
+                <Avatar user={u} size={32}/>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                    <div style={{fontSize:13, fontWeight:600}}>{u.name}</div>
+                    <span style={{
+                      fontSize:9, fontWeight:700, padding:'1px 6px', borderRadius:3,
+                      background: rb.bg, color: rb.color,
+                      display:'inline-flex', alignItems:'center', gap:3,
+                    }}>
+                      {RoleIcon && <RoleIcon size={9}/>} {rb.label}
+                    </span>
+                    {isSelf && <span style={{fontSize:9, color:'var(--t3)'}}>(you)</span>}
+                  </div>
+                  <div style={{fontSize:10, color:'var(--t3)', marginTop:2}}>
+                    {u.id} · {u.url ? <span style={{color:'#34d399'}}>Sheet ✓</span> : <span style={{color:'var(--t3)'}}>No sheet</span>}
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                {isSuperAdmin && !isSelf && (
+                  <button onClick={()=>loginAs(u.id)} title={'Log in as ' + u.name}
+                    style={{
+                      display:'flex', alignItems:'center', gap:4,
+                      background:'rgba(251,191,36,0.12)', color:'#fbbf24',
+                      border:'1px solid rgba(251,191,36,0.35)',
+                      padding:'4px 10px', borderRadius:5, fontSize:11, fontWeight:700, cursor:'pointer',
+                    }}>
+                    <LogIn size={11}/> Login as
+                  </button>
+                )}
+                {canManage(u) && (
+                  <>
+                    <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>reset(u.id)} title="Reset password">
+                      <KeyRound size={11}/>
+                    </button>
+                    <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>editUrl(u.id)} title="Edit sheet URL">
+                      <LinkIcon size={11}/>
+                    </button>
+                    {!isSelf && (
+                      <button className="btnd" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>remove(u.id)} title="Remove user">
+                        <Trash2 size={11}/>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
-        <div style={{paddingTop:16,borderTop:'1px solid var(--b1)'}}>
-          <div style={{fontSize:14,fontWeight:600,marginBottom:12}}>Create new salesman</div>
-          <div className="g2">
-            <div className="field"><label>Full Name</label><input className="inp" value={name} onChange={e=>setName(e.target.value)}/></div>
-            <div className="field"><label>Username</label><input className="inp" value={id} onChange={e=>setId(e.target.value)} placeholder="e.g. rahul"/></div>
-            <div className="field"><label>Password</label><input className="inp" type="password" value={pass} onChange={e=>setPass(e.target.value)}/></div>
-            <div className="field"><label>Sheet CSV URL</label><input className="inp" value={url} onChange={e=>setUrl(e.target.value)} placeholder="optional"/></div>
-            <div className="field full"><label>Color</label><div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>{colors.map(c=><div key={c} onClick={()=>setColor(c)} style={{width:22,height:22,borderRadius:'50%',cursor:'pointer',background:c,border:color===c?'2px solid var(--t1)':'2px solid transparent',transform:color===c?'scale(1.2)':'scale(1)'}}/>)}</div></div>
+
+        {/* ── Create new user ───────────────────────────────────────────── */}
+        <div style={{paddingTop:14, borderTop:'1px solid var(--b1)'}}>
+          <div style={{fontSize:14, fontWeight:600, marginBottom:10, display:'flex', alignItems:'center', gap:6}}>
+            <UserPlus size={14}/> Create new user
           </div>
-          <button className="btnp" onClick={create} style={{marginTop:6}}>Create Account</button>
+          <div className="g2">
+            <div className="field">
+              <label>Full Name</label>
+              <input className="inp" value={name} onChange={e=>setName(e.target.value)}/>
+            </div>
+            <div className="field">
+              <label>Username</label>
+              <input className="inp" value={id} onChange={e=>setId(e.target.value)} placeholder="e.g. rahul"/>
+            </div>
+            <div className="field">
+              <label>Password</label>
+              <input className="inp" type="password" value={pass} onChange={e=>setPass(e.target.value)}/>
+            </div>
+            <div className="field">
+              <label>Role</label>
+              <select className="inp sel" value={role} onChange={e=>setRole(e.target.value)}>
+                {createRoleOptions.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="field full">
+              <label>Sheet CSV URL <span style={{color:'var(--t3)', fontSize:10}}>(optional, mainly for salesmen)</span></label>
+              <input className="inp" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://docs.google.com/..."/>
+            </div>
+            <div className="field full">
+              <label>Color</label>
+              <div style={{display:'flex', gap:6, flexWrap:'wrap', marginTop:4}}>
+                {colors.map(c => (
+                  <div key={c} onClick={()=>setColor(c)} style={{
+                    width:22, height:22, borderRadius:'50%', cursor:'pointer',
+                    background:c,
+                    border: color === c ? '2px solid var(--t1)' : '2px solid transparent',
+                    transform: color === c ? 'scale(1.2)' : 'scale(1)',
+                  }}/>
+                ))}
+              </div>
+            </div>
+          </div>
+          <button className="btnp" onClick={create} disabled={busy} style={{marginTop:10, display:'flex', alignItems:'center', gap:6}}>
+            <UserPlus size={13}/> {busy ? 'Creating…' : 'Create Account'}
+          </button>
         </div>
       </div>
     </div>

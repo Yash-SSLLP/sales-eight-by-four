@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { RefreshCw, Package } from 'lucide-react';
+import { notify } from './Toast';
 
 const today = () => new Date().toISOString().slice(0,10);
 
@@ -53,7 +54,7 @@ export default function SamplesTab({ dealer, currentUser }) {
         });
         setGiven(g => ({ ...g, [sample._id]: record }));
       }
-    } catch(e) { alert(e.message); }
+    } catch(e) { notify.error(e.message); }
     setToggling(t => { const n = { ...t }; delete n[sample._id]; return n; });
   };
 

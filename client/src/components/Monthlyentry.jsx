@@ -639,7 +639,7 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
   const { MO:ctxMO, currentMonthIdx } = useMonth();
   const MO = ctxMO || MO_DEFAULT;
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
   const [month, setMonth]       = useState(MO[currentMonthIdx] || MO[MO.length-1]);
   const [salesman, setSalesman] = useState(isAdmin ? 'all' : currentUser?.id || '');
   const [search, setSearch]     = useState('');

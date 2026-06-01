@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { Upload, Trash2, RefreshCw, Package, Plus } from 'lucide-react';
+import { confirmDialog } from './Toast';
 
 export default function SampleMasterTab() {
   const [samples, setSamples] = useState([]);
@@ -30,7 +31,8 @@ export default function SampleMasterTab() {
   };
 
   const deleteSample = async (id) => {
-    if(!confirm('Delete this sample?')) return;
+    const ok = await confirmDialog({ title:'Delete this sample?', confirmText:'Delete', danger:true });
+    if(!ok) return;
     await api.deleteSample(id);
     setSamples(s=>s.filter(x=>x._id!==id));
   };

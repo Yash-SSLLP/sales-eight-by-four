@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { monthTarget, fetchCSV, parseRow, parseCSV } from '../utils';
+import { notify, confirmDialog } from './Toast';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -65,7 +66,8 @@ export default function ManageMonths({
 }) {
   const MO         = monthConfig?.MO || [];
   const currentIdx = monthConfig?.currentIdx ?? 0;
-  const isAdmin    = currentUser?.role === 'admin';
+  // Admin or superadmin both get full access
+  const isAdmin    = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
 
   const [newMonth, setNewMonth]     = useState('');
   const [busy, setBusy]             = useState(false);
@@ -273,10 +275,16 @@ export default function ManageMonths({
 
   const handleRemoveMonth = async (m) => {
     const stats = monthStats[m];
-    const confirmText = stats?.hasData
-      ? `Remove ${m} from the active months list?\n\nThis WILL NOT delete any dealer data — it only hides the month from the dashboard. You can re-add it any time.`
-      : `Remove ${m} from the months list? It has no data.`;
-    if(!window.confirm(confirmText)) return;
+    const message = stats?.hasData
+      ? 'This WILL NOT delete any dealer data — it only hides the month from the dashboard. You can re-add it any time.'
+      : 'This month has no data.';
+    const ok = await confirmDialog({
+      title: 'Remove ' + m + '?',
+      message,
+      confirmText: 'Remove',
+      danger: true,
+    });
+    if(!ok) return;
     setBusy(true);
     try {
       const idx = MO.indexOf(m);
@@ -340,7 +348,13 @@ export default function ManageMonths({
       showMsg('error', 'Wipe cancelled.');
       return;
     }
-    if(!window.confirm('Really delete ALL dealer data? This cannot be undone.')) return;
+    const wipeOk = await confirmDialog({
+      title: 'WIPE ALL DEALER DATA?',
+      message: 'Really delete ALL dealer data? This cannot be undone.',
+      confirmText: 'Delete everything',
+      danger: true,
+    });
+    if(!wipeOk) return;
     setBusy(true);
     try {
       const res = await api.wipeAllDealers();
@@ -365,12 +379,14 @@ export default function ManageMonths({
       const sampleText = (preview.sample || []).slice(0, 5)
         .map(s => `  • ${s.salesman} / ${s.name} (kept 1, would remove ${s.removed.length})`)
         .join('\n');
-      const ok = window.confirm(
-        `Found ${preview.duplicatesRemoved} duplicate dealer records across ${preview.groupsFound} dealer names.\n\n` +
-        `Sample:\n${sampleText}\n\n` +
-        `Proceed to merge their monthlyData into the canonical record and delete the duplicates? ` +
-        `This is safe — no monthly data is lost.`
-      );
+      const ok = await confirmDialog({
+        title: 'Merge ' + preview.duplicatesRemoved + ' duplicate dealer records?',
+        message:
+          `Found ${preview.duplicatesRemoved} duplicate dealer records across ${preview.groupsFound} dealer names.\n\n` +
+          `Sample:\n${sampleText}\n\n` +
+          `Proceed to merge their monthlyData into the canonical record and delete the duplicates? This is safe — no monthly data is lost.`,
+        confirmText: 'Merge & delete duplicates',
+      });
       if(!ok){ showMsg('error', 'Dedup cancelled.'); return; }
       // Step 2: real run
       const res = await api.dedupeDealers(false);
@@ -385,10 +401,12 @@ export default function ManageMonths({
   };
 
   const handleRepairTargets = async () => {
-    if(!window.confirm(
-      'Repair targets?\n\nThis will copy each dealer\'s baseline target into every month that has sales but no target stored. ' +
-      'It only ADDS missing per-month targets — nothing is deleted. Safe to run anytime.'
-    )) return;
+    const ok = await confirmDialog({
+      title: 'Repair targets?',
+      message: 'This will copy each dealer\'s baseline target into every month that has sales but no target stored. It only ADDS missing per-month targets — nothing is deleted. Safe to run anytime.',
+      confirmText: 'Repair',
+    });
+    if(!ok) return;
     setBusy(true);
     try {
       const res = await api.repairTargets();

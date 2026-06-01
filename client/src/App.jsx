@@ -15380,14 +15380,15 @@
 //   );
 // }
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { LayoutDashboard, Users, TrendingUp, Settings, LogOut, Bell, GitCompare, Menu, RefreshCw, Map, AlertTriangle, Upload, Edit3, Calendar } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { LayoutDashboard, Users, TrendingUp, Settings, LogOut, Bell, GitCompare, Menu, RefreshCw, Map, AlertTriangle, Upload, Edit3, Calendar, LogIn, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
 import { DEFAULT_USERS, MO as MO_DEFAULT, CURRENT_MONTH_IDX as CURRENT_MONTH_IDX_DEFAULT, CURRENT_MONTH_LABEL as CURRENT_MONTH_LABEL_DEFAULT, CURRENT_MONTH_SHORT as CURRENT_MONTH_SHORT_DEFAULT } from './constants';
 import { pct, spct, pclr, uid, isoNow, storage, parseCSV, fetchCSV, parseOutstandingCSV } from './utils';
 import { api, dbDealerToApp, dbOutstandingToApp, saveToken, getToken } from './api';
 import { MonthContext } from './context';
 import Styles            from './components/Styles';
 import { MonthSelectorBar, Avatar, SkeletonLoader, LoadingScreen } from './components/UI';
+import NotificationCenter, { notify, confirmDialog } from './components/Toast';
 import LoginPage         from './components/LoginPage';
 import Overview          from './components/Overview';
 import DealersList       from './components/DealersList';
@@ -15439,6 +15440,21 @@ export default function App(){
   const [theme,setTheme]=useState('dark');
   const [users,setUsers]=useState(DEFAULT_USERS);
   const [currentUser,setCurrentUser]=useState(null);
+  // Impersonation: when a superadmin uses "Login as" on another user, we store
+  // the original superadmin's identity here (and in localStorage) so the top
+  // banner can offer one-click return to the original account.
+  const [impersonatingFrom,setImpersonatingFrom]=useState(()=>{
+    try{ return JSON.parse(localStorage.getItem('stp_impersonating')||'null'); }catch{ return null; }
+  });
+  // ── Global Login-as dropdown (in the topbar, visible on every screen) ──
+  const [loginAsOpen, setLoginAsOpen] = useState(false);
+  const [loginAsBusy, setLoginAsBusy] = useState(false);
+  const [loginAsErr,  setLoginAsErr]  = useState(null);
+  // Anchor position for the fixed dropdown — captured from the button rect
+  // so the dropdown can use position:fixed and escape #topbar's overflow:hidden.
+  const [loginAsPos,  setLoginAsPos]  = useState({ top: 60, right: 12 });
+  const loginAsRef = useRef(null);
+  const loginAsBtnRef = useRef(null);
   const [dealers,setDealers]=useState([]);
   const [bootedFromSheets,setBootedFromSheets]=useState(false);
   const [notes,setNotes]=useState([]);
@@ -15485,12 +15501,41 @@ export default function App(){
       ]);
       if(u)setUsers(u); if(d)setDealers(d); if(n)setNotes(n); if(l)setActivityLog(l); if(t)setTheme(t);
 
+      // ── Session restore ────────────────────────────────────────────
+      // CRITICAL: if we're currently impersonating (stp_impersonating set),
+      // we must NOT re-login with the saved cookie — that would overwrite
+      // the impersonation JWT with a fresh JWT for the ORIGINAL superadmin.
+      // Instead, use the impersonation JWT we already have and call /me to
+      // fetch the impersonated user's profile.
+      const BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
+      const impMarker = (()=>{ try{ return JSON.parse(localStorage.getItem('stp_impersonating')||'null'); }catch{ return null; } })();
+      const existingToken = localStorage.getItem('stp_jwt');
+
+      if(impMarker && existingToken){
+        try {
+          const me = await fetch(`${BASE}/auth/me`,{
+            headers:{ Authorization:`Bearer ${existingToken}` },
+            signal: AbortSignal.timeout(8000),
+          }).then(r=>r.ok?r.json():null).catch(()=>null);
+          if(me && me.id){
+            setCurrentUser(me);
+            setUseDB(true);
+            setDbChecked(true);
+            return; // stop — do NOT fall through to cookie relogin
+          } else {
+            // Impersonation token is no longer valid — clear marker and
+            // fall through to normal cookie-based relogin as the original.
+            localStorage.removeItem('stp_impersonating');
+            setImpersonatingFrom(null);
+          }
+        } catch{}
+      }
+
       // Restore session — try server JWT login first, fallback to cookie
       const session = getCookie();
       if(session?.userId && session?.passHash){
         // Try to get fresh JWT from server
         try {
-          const BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
           const res  = await fetch(`${BASE}/auth/login`,{
             method:'POST',
             headers:{'Content-Type':'application/json'},
@@ -15556,9 +15601,75 @@ export default function App(){
     saveToken(null); setUseDB(false);
     setCurrentUser(null);
     clearCookie();
+    localStorage.removeItem('stp_impersonating');
+    setImpersonatingFrom(null);
     setScreen('overview');
     window.history.replaceState({screen:'overview'}, '', '#/overview');
   },[]);
+
+  // ── Return to original superadmin (called from impersonation banner) ─────
+  // Asks the server for a fresh JWT for the ORIGINAL superadmin, clears the
+  // impersonation marker, and reloads so the whole UI re-mounts cleanly.
+  const handleReturnToSelf = useCallback(async () => {
+    try {
+      const res = await api.returnToSelf();
+      saveToken(res.token);
+      localStorage.removeItem('stp_impersonating');
+      setImpersonatingFrom(null);
+      setCurrentUser(res.user);
+      setTimeout(()=>window.location.reload(), 150);
+    } catch(e){
+      notify.error('Could not return to your account: ' + e.message + '. Please log in again.');
+      handleLogout();
+    }
+  },[handleLogout]);
+
+  // ── Close global Login-as dropdown on outside click ─────────────────────
+  useEffect(()=>{
+    if(!loginAsOpen) return;
+    const onDoc = (e) => { if(loginAsRef.current && !loginAsRef.current.contains(e.target)) setLoginAsOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return ()=>document.removeEventListener('mousedown', onDoc);
+  },[loginAsOpen]);
+
+  // ── Trigger impersonation from anywhere in the app ──────────────────────
+  const doLoginAs = useCallback(async (uid, name) => {
+    if(loginAsBusy) return;
+    setLoginAsErr(null);
+    const ok = await confirmDialog({
+      title: 'Login as ' + name + '?',
+      message: 'You will see exactly what they see. Use the yellow banner at the top to return to your own account at any time.',
+      confirmText: 'Login as ' + name,
+    });
+    if(!ok) return;
+    setLoginAsBusy(true);
+    try {
+      const res = await api.impersonate(uid);
+      saveToken(res.token);
+      localStorage.setItem('stp_jwt', res.token);
+      const impersonatedBy = {
+        id:    currentUser.id,
+        name:  currentUser.name,
+        ini:   currentUser.ini,
+        color: currentUser.color,
+      };
+      localStorage.setItem('stp_impersonating', JSON.stringify(impersonatedBy));
+      setImpersonatingFrom(impersonatedBy);
+      setCurrentUser(res.user);
+      setLoginAsOpen(false);
+      setTimeout(()=>window.location.reload(), 200);
+    } catch(e){
+      // Common cause: stale JWT — user's role was upgraded to superadmin in DB
+      // but the JWT they're holding was issued back when they were 'admin', so
+      // the server-side superAdminOnly middleware rejects it.
+      const msg = (e.message||'').toLowerCase();
+      if(msg.includes('superadmin') || msg.includes('403') || msg.includes('not allowed')){
+        setLoginAsErr('Your token is out of date. Please Sign out and sign in again, then try Login-as.');
+      } else {
+        setLoginAsErr('Login-as failed: ' + e.message);
+      }
+    } finally { setLoginAsBusy(false); }
+  },[currentUser, loginAsBusy]);
 
   const saveMonthConfig = (cfg) => {
     const updated = {...monthConfig,...cfg};
@@ -15601,17 +15712,20 @@ export default function App(){
     setActivityLog(l=>[{id:uid(),action,detail,by:currentUser?.id,at:isoNow()},...l].slice(0,200));
   },[currentUser]);
 
+  // Staff = admin OR superadmin (both see all dealers/notes)
+  const isStaff = currentUser?.role==='admin' || currentUser?.role==='superadmin';
+
   const myDealers=useMemo(()=>{
     if(!currentUser)return[];
-    return currentUser.role==='admin'?dealers:dealers.filter(d=>d.salesman===currentUser.id);
-  },[dealers,currentUser]);
+    return isStaff?dealers:dealers.filter(d=>d.salesman===currentUser.id);
+  },[dealers,currentUser,isStaff]);
 
   const myNotes=useMemo(()=>{
     if(!currentUser)return[];
-    if(currentUser.role==='admin')return notes;
+    if(isStaff)return notes;
     const myIds=new Set(myDealers.map(d=>d.id));
     return notes.filter(n=>myIds.has(n.dealerId));
-  },[notes,myDealers,currentUser]);
+  },[notes,myDealers,currentUser,isStaff]);
 
   const syncSheets=useCallback(async()=>{
     setSyncing(true); const errs=[],live=[];
@@ -15831,7 +15945,13 @@ export default function App(){
   };
   const updateDealerFields = (id,patch)=>setDealers(ds=>ds.map(x=>x.id===id?{...x,...patch}:x));
   const deleteDealer = async (id) => {
-    if(!confirm('Delete this dealer? This cannot be undone.'))return;
+    const ok = await confirmDialog({
+      title: 'Delete dealer?',
+      message: 'This cannot be undone.',
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if(!ok) return;
     const d=dealers.find(x=>x.id===id);
     setDealers(ds=>ds.filter(x=>x.id!==id));
     setNotes(ns=>ns.filter(n=>n.dealerId!==id));
@@ -15891,7 +16011,7 @@ export default function App(){
   const editing=editingId?dealers.find(x=>x.id===editingId):null;
 
   if(!currentUser){
-    return(<><Styles theme={theme}/><LoginPage users={users} onLogin={handleLogin} theme={theme} toggleTheme={toggleTheme}/></>);
+    return(<><Styles theme={theme}/><LoginPage users={users} onLogin={handleLogin} theme={theme} toggleTheme={toggleTheme}/><NotificationCenter/></>);
   }
 
   // All status counts for territory bar (plain derivation, no hook)
@@ -15911,7 +16031,7 @@ export default function App(){
     {id:'entry',label:'Monthly Entry',icon:Edit3,adminOnly:true},
     {id:'months',label:'Manage Months',icon:Calendar,adminOnly:true},
     {id:'followups',label:'Follow-ups',icon:Bell,badge:overdueCount},
-    ...(currentUser.role==='admin'?[{id:'admin',label:'Admin Panel',icon:Settings}]:[]),
+    ...(isStaff?[{id:'admin',label:'Admin Panel',icon:Settings}]:[]),
   ];
 
   return(
@@ -15919,6 +16039,44 @@ export default function App(){
       <>
         <Styles theme={theme}/>
         <div id="app" style={{display:'flex',flexDirection:'column',height:'100vh'}}>
+
+          {/* ── Impersonation banner ── only when a superadmin is logged-in
+              as another user. Lets them return to their own account with
+              one click (no password re-entry). */}
+          {impersonatingFrom && (
+            <div style={{
+              display:'flex',alignItems:'center',gap:10,
+              padding:'8px 14px',
+              background:'linear-gradient(90deg, rgba(251,191,36,0.18), rgba(251,191,36,0.08))',
+              borderBottom:'1px solid rgba(251,191,36,0.40)',
+              color:'#fbbf24',fontSize:12,fontWeight:600,
+              flexShrink:0,
+            }}>
+              <span style={{
+                background:'#fbbf24',color:'#1f1300',
+                padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:800,letterSpacing:'.06em',
+              }}>VIEWING AS</span>
+              <Avatar user={currentUser} size={20}/>
+              <span style={{color:'#fde68a'}}>{currentUser?.name}</span>
+              <span style={{color:'rgba(251,191,36,0.55)'}}>·</span>
+              <span style={{color:'rgba(251,191,36,0.85)',fontWeight:500}}>
+                You see exactly what they see
+              </span>
+              <div style={{flex:1}}/>
+              <button onClick={handleReturnToSelf}
+                style={{
+                  display:'flex',alignItems:'center',gap:6,
+                  padding:'5px 12px',borderRadius:5,
+                  background:'#fbbf24',color:'#1f1300',
+                  border:'none',cursor:'pointer',
+                  fontSize:11,fontWeight:700,letterSpacing:'.03em',
+                  whiteSpace:'nowrap',
+                }}
+                title={'Return to ' + (impersonatingFrom?.name || 'your account')}>
+                <LogOut size={12}/> Return to {impersonatingFrom?.name || 'my account'}
+              </button>
+            </div>
+          )}
 
           {/* ── Topbar ── */}
           <div id="topbar">
@@ -15961,6 +16119,95 @@ export default function App(){
               <Settings size={13}/>
             </button>
 
+            {/* ── Login as ▼ — superadmin only, visible on every screen ── */}
+            {currentUser?.role==='superadmin' && (
+              <div ref={loginAsRef} style={{flexShrink:0}}>
+                <button ref={loginAsBtnRef} className="btn"
+                  onClick={()=>{
+                    // Compute absolute position (viewport coordinates) for the
+                    // fixed-position dropdown so it doesn't get clipped by
+                    // #topbar's overflow:hidden.
+                    const r = loginAsBtnRef.current?.getBoundingClientRect();
+                    if(r){
+                      setLoginAsPos({
+                        top: r.bottom + 6,
+                        right: Math.max(8, window.innerWidth - r.right),
+                      });
+                    }
+                    setLoginAsOpen(o=>!o);
+                  }}
+                  title="Sign in as another user without their password"
+                  style={{
+                    fontSize:11, display:'flex', alignItems:'center', gap:4, padding:'6px 8px',
+                    background:'rgba(251,191,36,0.10)',
+                    border:'1px solid rgba(251,191,36,0.35)',
+                    color:'#fbbf24', fontWeight:700,
+                  }}>
+                  <LogIn size={13}/>
+                  <span className="hide-sm">Login as</span>
+                  <ChevronDown size={11} style={{transform:loginAsOpen?'rotate(180deg)':'rotate(0)', transition:'transform .15s'}}/>
+                </button>
+                {loginAsOpen && (
+                  <div style={{
+                    position:'fixed', top:loginAsPos.top, right:loginAsPos.right, zIndex:9999,
+                    background:'var(--bg2)', border:'1px solid var(--b2)',
+                    borderRadius:8, minWidth:240, maxHeight:380, overflowY:'auto',
+                    boxShadow:'0 10px 30px rgba(0,0,0,0.45)', padding:6,
+                  }}>
+                    <div style={{fontSize:9, color:'var(--t3)', letterSpacing:'.12em', textTransform:'uppercase', padding:'6px 10px 4px'}}>
+                      Pick a user
+                    </div>
+                    {loginAsErr && (
+                      <div style={{
+                        fontSize:11, color:'#fca5a5', padding:'6px 10px',
+                        background:'rgba(248,113,113,0.10)', border:'1px solid #7f1d1d',
+                        borderRadius:6, margin:'4px 6px',
+                      }}>{loginAsErr}</div>
+                    )}
+                    {Object.values(users||{})
+                      .filter(u => u.id !== currentUser?.id)
+                      .sort((a,b)=>{
+                        const order = { salesman:0, admin:1, superadmin:2 };
+                        const r = (order[a.role]??9) - (order[b.role]??9);
+                        if(r !== 0) return r;
+                        return (a.name||'').localeCompare(b.name||'');
+                      })
+                      .map(u => {
+                        const isSA = u.role === 'superadmin';
+                        const isAd = u.role === 'admin';
+                        const RoleIcon = isSA ? ShieldCheck : isAd ? Shield : null;
+                        const roleColor = isSA ? '#fbbf24' : isAd ? '#a5b4fc' : '#86efac';
+                        return (
+                          <div key={u.id}
+                            onClick={()=>doLoginAs(u.id, u.name)}
+                            style={{
+                              display:'flex', alignItems:'center', gap:8,
+                              padding:'8px 10px', borderRadius:6,
+                              cursor: loginAsBusy?'wait':'pointer',
+                              opacity: loginAsBusy?0.6:1,
+                            }}
+                            onMouseEnter={e=>e.currentTarget.style.background='var(--bg1)'}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                            <Avatar user={u} size={26}/>
+                            <div style={{flex:1, minWidth:0}}>
+                              <div style={{fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:6}}>
+                                <span style={{whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{u.name}</span>
+                                {RoleIcon && <RoleIcon size={10} style={{color:roleColor, flexShrink:0}}/>}
+                              </div>
+                              <div style={{fontSize:10, color:'var(--t3)'}}>{u.id} · <span style={{color:roleColor}}>{u.role}</span></div>
+                            </div>
+                            <LogIn size={12} style={{color:'#fbbf24', flexShrink:0}}/>
+                          </div>
+                        );
+                      })}
+                    {Object.values(users||{}).filter(u=>u.id!==currentUser?.id).length === 0 && (
+                      <div style={{fontSize:11, color:'var(--t3)', padding:'10px'}}>No other users yet.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── Reload from DB button — safe refresh, doesn't touch Sheets ── */}
             <button onClick={()=>loadFromDB(activeMO)} disabled={syncing} className="btn"
               title="Reload all dealer data from MongoDB. Safe — never touches Google Sheets."
@@ -15991,7 +16238,7 @@ export default function App(){
             <Avatar user={currentUser} size={26}/>
             <div className="hide-sm" style={{display:'flex',flexDirection:'column'}}>
               <div style={{fontSize:12,fontWeight:600,color:'var(--t1)',lineHeight:1.1,whiteSpace:'nowrap'}}>{currentUser.name}</div>
-              <div style={{fontSize:10,color:'var(--t3)'}}>{currentUser.role==='admin'?'Admin':'Sales'}</div>
+              <div style={{fontSize:10,color:'var(--t3)'}}>{currentUser.role==='superadmin'?'Superadmin':currentUser.role==='admin'?'Admin':'Sales'}</div>
             </div>
 
             {/* ── Sign out — always visible, icon + text on desktop ── */}
@@ -16046,7 +16293,7 @@ export default function App(){
             {sidebarOpen&&window.innerWidth<=768&&<div id="sb-overlay" className="open" onClick={()=>setSidebarOpen(false)}/>}
             <div id="sidebar" className={sidebarOpen?'open':'closed'}>
               <div className="nav-sec">Navigation</div>
-              {navItems.filter(n=>!n.adminOnly||currentUser?.role==='admin').map(n=>{const Icon=n.icon;return(
+              {navItems.filter(n=>!n.adminOnly||isStaff).map(n=>{const Icon=n.icon;return(
                 <div key={n.id} className={`nav-item ${screen===n.id?'active':''}`} onClick={()=>navigate(n.id)}>
                   <Icon size={14}/><span style={{flex:1}}>{n.label}</span>
                   {n.badge>0&&<span style={{background:'var(--red)',color:'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,fontWeight:700}}>{n.badge}</span>}
@@ -16084,9 +16331,21 @@ export default function App(){
                   {screen==='outstanding'&&<Outstanding dealers={myDealers} users={users} onOpenDealer={setEditingId} currentUser={currentUser} outstandingData={outstandingData} setOutstandingData={setOutstandingData}/>}
                   {screen==='upload'&&<UploadMonth users={users} currentUser={currentUser} onSuccess={()=>loadFromDB(activeMO)}/>}
                   {screen==='entry'&&<MonthlyEntry dealers={myDealers} users={users} currentUser={currentUser} onUpdateDealer={updateDealerFields} onSaved={()=>loadFromDB(activeMO)}/>}
-                  {screen==='months'&&currentUser.role==='admin'&&<ManageMonths dealers={dealers} users={users} currentUser={currentUser} monthConfig={monthConfig} saveMonthConfig={saveMonthConfig} loadFromDB={loadFromDB} onSync={syncSheets} syncing={syncing} lastSync={lastSync}/>}
+                  {screen==='months'&&isStaff&&<ManageMonths dealers={dealers} users={users} currentUser={currentUser} monthConfig={monthConfig} saveMonthConfig={saveMonthConfig} loadFromDB={loadFromDB} onSync={syncSheets} syncing={syncing} lastSync={lastSync}/>}
                   {screen==='followups'&&<FollowupsHub notes={myNotes} dealers={myDealers} users={users} onUpdateNote={updateNote} onDeleteNote={deleteNote} onOpenDealer={setEditingId}/>}
-                  {screen==='admin'&&currentUser.role==='admin'&&<AdminPanel dealers={dealers} users={users} setUsers={setUsers} setShowUM={setShowUM} onSync={syncSheets} syncing={syncing} lastSync={lastSync} syncErrs={syncErrs} onNavigate={navigate} onOpenDealer={setEditingId} monthConfig={monthConfig} saveMonthConfig={saveMonthConfig}/>}
+                  {screen==='admin'&&isStaff&&<AdminPanel dealers={dealers} users={users} setUsers={setUsers} setShowUM={setShowUM} onSync={syncSheets} syncing={syncing} lastSync={lastSync} syncErrs={syncErrs} onNavigate={navigate} onOpenDealer={setEditingId} monthConfig={monthConfig} saveMonthConfig={saveMonthConfig} currentUser={currentUser} onLoginAs={(token, user, impersonatedBy)=>{
+                    saveToken(token);
+                    localStorage.setItem('stp_jwt', token);
+                    if(impersonatedBy){
+                      localStorage.setItem('stp_impersonating', JSON.stringify(impersonatedBy));
+                      setImpersonatingFrom(impersonatedBy);
+                    } else {
+                      localStorage.removeItem('stp_impersonating');
+                      setImpersonatingFrom(null);
+                    }
+                    setCurrentUser(user);
+                    setTimeout(()=>window.location.reload(), 200);
+                  }}/>}
                 </>
               )}
             </div>
@@ -16095,9 +16354,34 @@ export default function App(){
 
         {editing&&<DealerModal dealer={editing} users={users} currentUser={currentUser} onSave={saveDealer} onDelete={deleteDealer} onClose={()=>setEditingId(null)} notes={notes} onAddNote={addNote} onUpdateNote={updateNote} onDeleteNote={deleteNote} onLog={addLog} outstandingData={outstandingData} outFollowups={outFollowups} onFollowupSaved={()=>api.getFollowups().then(d=>setOutFollowups(d)).catch(()=>{})}/>}
         {showAdd&&<AddDealerModal users={users} currentUser={currentUser} onAdd={addDealer} onClose={()=>setShowAdd(false)}/>}
-        {showUM&&<UserManagement users={users} setUsers={setUsers} onClose={()=>setShowUM(false)}/>}
+        {showUM&&<UserManagement
+          users={users}
+          setUsers={setUsers}
+          currentUser={currentUser}
+          onClose={()=>setShowUM(false)}
+          onLoginAs={(token, user, impersonatedBy)=>{
+            // Switch the active session to the target user. Store an
+            // impersonation marker so the top banner can offer
+            // "Return to <originalName>" without re-login.
+            saveToken(token);
+            localStorage.setItem('stp_jwt', token);
+            if(impersonatedBy){
+              localStorage.setItem('stp_impersonating', JSON.stringify(impersonatedBy));
+              setImpersonatingFrom(impersonatedBy);
+            } else {
+              localStorage.removeItem('stp_impersonating');
+              setImpersonatingFrom(null);
+            }
+            setCurrentUser(user);
+            setShowUM(false);
+            // Reload so all month/dealer data is re-fetched as the new user
+            setTimeout(()=>window.location.reload(), 200);
+          }}
+        />}
         {bulkAction&&<BulkActionModal action={bulkAction} selected={selected} dealers={dealers} users={users} onApply={applyBulk} onClose={()=>setBulkAction(null)}/>}
         {showApiSettings && <ApiUrlSettings onClose={()=>setShowApiSettings(false)}/>}
+        {/* Global toasts + confirm dialog — replaces window.alert / confirm */}
+        <NotificationCenter/>
       </>
     </MonthContext.Provider>
   );

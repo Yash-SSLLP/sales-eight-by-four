@@ -258,17 +258,19 @@
 
 // sample confrigaruon
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, Target, Award, Activity, RefreshCw, Calendar, Plus, Trash2, Check } from 'lucide-react';
+import { Users, Target, Award, Activity, RefreshCw, Calendar, Plus, Trash2, Check, LogIn, UserPlus, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
 import { MO as MO_CONST } from '../constants';
 import { pct, spct, pclr, monthTarget } from '../utils';
 import { useMonth } from '../context';
 import { Avatar, KPI, StatCard } from './UI';
 import CategoryDrillChart from './CategoryDrillChart';
 import SampleMasterTab from './SampleMasterTab';
+import { api } from '../api';
+import { notify, confirmDialog } from './Toast';
 
-const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,syncErrs,onNavigate,onOpenDealer,monthConfig,saveMonthConfig})=>{
+const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,syncErrs,onNavigate,onOpenDealer,monthConfig,saveMonthConfig,currentUser,onLoginAs})=>{
   const {selectedMonthIdx, MO:ctxMO}=useMonth();
   const MO = monthConfig?.MO || ctxMO || MO_CONST;
   const selMoLabel=(MO[selectedMonthIdx]||MO[MO.length-1]||'').slice(0,3);
@@ -276,6 +278,58 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
   const [newMonth,setNewMonth]=useState('');
   const [newMonthErr,setNewMonthErr]=useState('');
   const sms=Object.values(users).filter(u=>u.role==='salesman');
+
+  // ── Login-as dropdown (superadmin only) ─────────────────────────────────
+  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const isStaff      = isSuperAdmin || currentUser?.role === 'admin';
+  const [laOpen, setLaOpen]   = useState(false);
+  const [laBusy, setLaBusy]   = useState(false);
+  const [laErr,  setLaErr]    = useState(null);
+  const laRef = useRef(null);
+  // Close dropdown on outside click
+  useEffect(()=>{
+    if(!laOpen) return;
+    const onDoc = (e) => { if(laRef.current && !laRef.current.contains(e.target)) setLaOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return ()=>document.removeEventListener('mousedown', onDoc);
+  },[laOpen]);
+
+  // Users available for impersonation: everyone except yourself.
+  const impersonableUsers = useMemo(()=>{
+    const all = Object.values(users || {});
+    // Sort: salesman first (most common), then admin, then superadmin
+    const order = { salesman:0, admin:1, superadmin:2 };
+    return all
+      .filter(u => u.id !== currentUser?.id)
+      .sort((a,b)=>{
+        const r = (order[a.role]??9) - (order[b.role]??9);
+        if(r !== 0) return r;
+        return (a.name||'').localeCompare(b.name||'');
+      });
+  },[users, currentUser]);
+
+  const doLoginAs = async (uid, name) => {
+    if(laBusy) return;
+    const okLA = await confirmDialog({
+      title: 'Login as ' + name + '?',
+      message: 'You will see exactly what they see. Use the yellow banner at the top to return to your own account at any time.',
+      confirmText: 'Login as ' + name,
+    });
+    if(!okLA) return;
+    setLaBusy(true); setLaErr(null);
+    try {
+      const res = await api.impersonate(uid);
+      onLoginAs?.(res.token, res.user, {
+        id:    currentUser.id,
+        name:  currentUser.name,
+        ini:   currentUser.ini,
+        color: currentUser.color,
+      });
+      setLaOpen(false);
+    } catch(e){
+      setLaErr(e.message || 'Login-as failed');
+    } finally { setLaBusy(false); }
+  };
   // Smart per-month target — see utils.monthTarget. Uses month-specific target
   // if uploaded, falls back to global only for months that actually have sales.
   const dealersForMonth=useMemo(()=>dealers.map(d=>({...d,achieved:d.months[selectedMonthIdx]||0,target:monthTarget(d, selectedMonthIdx)})),[dealers,selectedMonthIdx]);
@@ -286,11 +340,94 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
   return(
     <div className="fade">
       <div style={{marginBottom:18}}>
-        <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'0.15em',marginBottom:2}}>Admin · {MO[selectedMonthIdx]}</div>
-        <div className="row">
+        <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'0.15em',marginBottom:2}}>
+          {isSuperAdmin?'Superadmin':'Admin'} · {MO[selectedMonthIdx]}
+        </div>
+        <div className="row" style={{flexWrap:'wrap', gap:8}}>
           <div style={{fontSize:22,fontWeight:700}}>Control Panel</div>
           <div className="spacer"/>
-          <button onClick={()=>setShowUM(true)} className="btn" style={{display:'flex',alignItems:'center',gap:6}}><Users size={13}/> Users</button>
+
+          {/* ── Login as ▼ — superadmin only ──────────────────────────── */}
+          {isSuperAdmin && (
+            <div ref={laRef} style={{position:'relative'}}>
+              <button onClick={()=>setLaOpen(o=>!o)} className="btn"
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  background:'rgba(251,191,36,0.10)',
+                  border:'1px solid rgba(251,191,36,0.35)',
+                  color:'#fbbf24', fontWeight:700,
+                }}
+                title="Quick-switch into another account">
+                <LogIn size={13}/> Login as
+                <ChevronDown size={12} style={{
+                  transform: laOpen?'rotate(180deg)':'rotate(0)',
+                  transition:'transform .15s',
+                }}/>
+              </button>
+              {laOpen && (
+                <div style={{
+                  position:'absolute', top:'calc(100% + 6px)', right:0, zIndex:50,
+                  background:'var(--bg2)', border:'1px solid var(--b2)',
+                  borderRadius:8, minWidth:240, maxHeight:360, overflowY:'auto',
+                  boxShadow:'0 10px 30px rgba(0,0,0,0.45)',
+                  padding:6,
+                }}>
+                  <div style={{
+                    fontSize:9, color:'var(--t3)', letterSpacing:'.12em',
+                    textTransform:'uppercase', padding:'6px 10px 4px',
+                  }}>Pick a user</div>
+                  {laErr && (
+                    <div style={{
+                      fontSize:11, color:'#fca5a5', padding:'6px 10px',
+                      background:'rgba(248,113,113,0.10)',
+                      border:'1px solid #7f1d1d', borderRadius:6, margin:'4px 6px',
+                    }}>{laErr}</div>
+                  )}
+                  {impersonableUsers.length === 0 && (
+                    <div style={{fontSize:11, color:'var(--t3)', padding:'10px'}}>No other users yet.</div>
+                  )}
+                  {impersonableUsers.map(u => {
+                    const isSA = u.role === 'superadmin';
+                    const isAd = u.role === 'admin';
+                    const RoleIcon = isSA ? ShieldCheck : isAd ? Shield : null;
+                    const roleColor = isSA ? '#fbbf24' : isAd ? '#a5b4fc' : '#86efac';
+                    return (
+                      <div key={u.id}
+                        onClick={()=>doLoginAs(u.id, u.name)}
+                        style={{
+                          display:'flex', alignItems:'center', gap:8,
+                          padding:'8px 10px', borderRadius:6, cursor: laBusy?'wait':'pointer',
+                          opacity: laBusy?0.6:1,
+                        }}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--bg1)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <Avatar user={u} size={26}/>
+                        <div style={{flex:1, minWidth:0}}>
+                          <div style={{fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:6}}>
+                            <span style={{whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{u.name}</span>
+                            {RoleIcon && <RoleIcon size={10} style={{color:roleColor, flexShrink:0}}/>}
+                          </div>
+                          <div style={{fontSize:10, color:'var(--t3)'}}>{u.id} · <span style={{color:roleColor}}>{u.role}</span></div>
+                        </div>
+                        <LogIn size={12} style={{color:'#fbbf24', flexShrink:0}}/>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Add user (admin & superadmin) — opens UserManagement modal */}
+          {isStaff && (
+            <button onClick={()=>setShowUM(true)} className="btn"
+              style={{display:'flex',alignItems:'center',gap:6}}
+              title="Create a new user, change roles, or reset passwords">
+              <UserPlus size={13}/> Add / Manage Users
+            </button>
+          )}
+
+          {/* ── Sync sheets (admin & superadmin) ─────────────────────── */}
           <button onClick={onSync} className="btnp" style={{display:'flex',alignItems:'center',gap:8}} disabled={syncing}><RefreshCw size={13} className={syncing?'spin':''}/> {syncing?'Syncing...':'Sync Sheets'}</button>
         </div>
       </div>
@@ -494,8 +631,9 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
                       {isCurrent&&<div style={{fontSize:9,color:'var(--acc)'}}>CURRENT</div>}
                     </div>
                     {!isCurrent&&(
-                      <button onClick={()=>{
-                        if(!confirm(`Remove ${m} from selector? Data is NOT deleted.`))return;
+                      <button onClick={async ()=>{
+                        const ok = await confirmDialog({ title:'Remove ' + m + ' from selector?', message:'Data is NOT deleted — just hidden.', confirmText:'Remove', danger:true });
+                        if(!ok) return;
                         const curMO=(monthConfig?.MO||MO).filter(x=>x!==m);
                         const curIdx=monthConfig?.currentIdx??10;
                         const newIdx=curIdx>i?curIdx-1:curIdx;
@@ -508,8 +646,9 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
                 );
               })}
             </div>
-            <button className="btn" style={{marginTop:12,fontSize:11,color:'var(--t3)'}} onClick={()=>{
-              if(!confirm('Reset months to default (Jul-25 → Dec-26)?'))return;
+            <button className="btn" style={{marginTop:12,fontSize:11,color:'var(--t3)'}} onClick={async ()=>{
+              const ok = await confirmDialog({ title:'Reset months to default?', message:'Months will be reset to Jul-25 → Dec-26.', confirmText:'Reset' });
+              if(!ok) return;
               const def=['Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25','Jan-26','Feb-26','Mar-26','Apr-26','May-26','Jun-26','Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26'];
               if(saveMonthConfig) saveMonthConfig({MO:def,currentIdx:10,label:'May 2026',short:'May'});
             }}>Reset to Default</button>

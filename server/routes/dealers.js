@@ -66,9 +66,12 @@ const fmt = (d, MO=[]) => {
   };
 };
 
+// Staff = admin OR superadmin (both see everything). Salesmen only see their own.
+const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
 router.get('/', protect, async (req, res) => {
   try {
-    const filter = req.user.role==='admin'?{}:{salesman:req.user.id};
+    const filter = isStaff(req)?{}:{salesman:req.user.id};
     const MO = req.query.mo?req.query.mo.split(','):[];
     const dealers = await Dealer.find(filter).lean();
     // Log a quick summary so we can see what's in DB on every fetch.
@@ -88,7 +91,7 @@ router.get('/', protect, async (req, res) => {
 router.post('/upload', protect, upload.single('file'), async (req,res) => {
   try {
     const {month, salesman:uploadSm} = req.body;
-    const smId = req.user.role==='admin'?(uploadSm||req.user.id):req.user.id;
+    const smId = isStaff(req)?(uploadSm||req.user.id):req.user.id;
     if(!month) return res.status(400).json({error:'month required'});
     if(!req.file) return res.status(400).json({error:'No file'});
     const wb=XLSX.read(req.file.buffer,{type:'buffer'});
@@ -413,7 +416,7 @@ router.get('/:id', protect, async (req,res) => {
   try {
     const d=await Dealer.findById(req.params.id).lean();
     if(!d) return res.status(404).json({error:'Not found'});
-    if(req.user.role!=='admin'&&d.salesman!==req.user.id) return res.status(403).json({error:'Not your dealer'});
+    if(!isStaff(req)&&d.salesman!==req.user.id) return res.status(403).json({error:'Not your dealer'});
     res.json(fmt(d,req.query.mo?.split(',')||[]));
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -421,7 +424,7 @@ router.get('/:id', protect, async (req,res) => {
 router.post('/', protect, async (req,res) => {
   try {
     const data={...req.body};
-    if(req.user.role!=='admin') data.salesman=req.user.id;
+    if(!isStaff(req)) data.salesman=req.user.id;
     const d=await Dealer.create(data);
     res.json(fmt(d.toObject(),[]));
   }catch(e){res.status(500).json({error:e.message});}
@@ -431,7 +434,7 @@ router.put('/:id', protect, async (req,res) => {
   try {
     const ex=await Dealer.findById(req.params.id);
     if(!ex) return res.status(404).json({error:'Not found'});
-    if(req.user.role!=='admin'&&ex.salesman!==req.user.id) return res.status(403).json({error:'Not your dealer'});
+    if(!isStaff(req)&&ex.salesman!==req.user.id) return res.status(403).json({error:'Not your dealer'});
     const setObj={};
     for(const [k,v] of Object.entries(req.body)){
       if(k.startsWith('monthlyData.')&&v&&typeof v==='object'){Object.entries(v).forEach(([f,fv])=>{setObj[`${k}.${f}`]=fv;});}else{setObj[k]=v;}

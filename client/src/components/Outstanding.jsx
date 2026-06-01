@@ -5638,10 +5638,11 @@
 // }
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { RefreshCw, Search, X, Upload, Plus, Check, Trash2, Calendar, MessageSquare, Bell, Phone, PhoneMissed } from 'lucide-react';
+import { RefreshCw, Search, X, Upload, Plus, Check, Trash2, Calendar, MessageSquare, Bell, Phone, PhoneMissed, Download } from 'lucide-react';
 import { fetchCSV, parseOutstandingCSV } from '../utils';
 import { api, dbOutstandingToApp } from '../api';
 import { Avatar, MultiSelect } from './UI';
+import { notify, confirmDialog } from './Toast';
 
 const fmt      = v => v > 0 ? '₹' + Number(v).toLocaleString('en-IN') : '—';
 const todayStr = () => new Date().toISOString().slice(0,10);
@@ -5686,7 +5687,8 @@ function FollowupModal({ dealer, existingFollowups, onClose, onSaved }) {
     await api.updateFollowup(id,{status}); onSaved();
   };
   const handleDelete = async (id) => {
-    if(!confirm('Delete this follow-up?')) return;
+    const okDel = await confirmDialog({ title:'Delete this follow-up?', confirmText:'Delete', danger:true });
+    if(!okDel) return;
     await api.deleteFollowup(id); onSaved();
   };
 
@@ -5846,7 +5848,7 @@ function ExpandedRow({ d, dealers, onOpenDealer, setActiveDealer, allMonthCols, 
   const saveNotes = async () => {
     const text = notes.filter(Boolean).join(' | ');
     if(!text) return;
-    if(!localStorage.getItem('stp_jwt')){ alert('Please log out and log back in to save notes.'); return; }
+    if(!localStorage.getItem('stp_jwt')){ notify.error('Please log out and log back in to save notes.'); return; }
     setSaving(true);
     try {
       await api.addFollowup({
@@ -5865,7 +5867,7 @@ function ExpandedRow({ d, dealers, onOpenDealer, setActiveDealer, allMonthCols, 
   };
 
   const logNoPickup = async () => {
-    if(!localStorage.getItem('stp_jwt')){ alert('Please log out and log back in.'); return; }
+    if(!localStorage.getItem('stp_jwt')){ notify.error('Please log out and log back in.'); return; }
     try {
       await api.addFollowup({
         dealerName:   d.name,
@@ -5880,50 +5882,95 @@ function ExpandedRow({ d, dealers, onOpenDealer, setActiveDealer, allMonthCols, 
   };
 
   return (
-    <tr>
-      <td colSpan={99} style={{background:'var(--bg2)',padding:'12px 14px',borderBottom:'1px solid var(--b1)'}}>
-        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-
-          {/* 1. View Dealer */}
-          <button onClick={()=>{const dl=dealers.find(x=>x.name.toUpperCase().trim()===d.name.toUpperCase().trim());if(dl)onOpenDealer(dl.id);}}
-            className="btnp" style={{fontSize:11,padding:'6px 12px',whiteSpace:'nowrap',flexShrink:0}}>
-            👤 View Dealer
+    // No spacer/divider — this row continues the dealer row above. Same
+    // background, no top border, normal bottom border to separate from the
+    // NEXT dealer.
+    <tr className="os-expanded-row">
+      {/* Single colSpan cell across ALL columns. Setting an explicit width
+          on the # column (like the previous 2-cell layout did) caused the
+          table to re-compute column widths when the row was expanded, which
+          shifted the dealer name to the left. Using one cell with padding-left
+          leaves all column widths untouched. */}
+      <td colSpan={99} style={{
+        background:'var(--bg2)',
+        // padding-left aligns content under the Dealer Name column above.
+        // Bigger padding (~96px) since the # column + cell padding adds up to
+        // roughly that on a standard table layout.
+        padding:'4px 10px 8px 96px',
+        borderBottom:'1px solid var(--b1)',
+        borderLeft:'2px solid var(--acc)',
+        overflow:'hidden',
+      }}>
+        {/* Buttons only — salesman/amount summary removed (already visible
+            on the row above). */}
+        <div style={{
+          display:'flex',
+          gap:6,
+          alignItems:'center',
+          flexWrap:'wrap',
+        }}>
+          {/* 1. View Dealer — primary action */}
+          <button
+            onClick={()=>{
+              const dl=dealers.find(x=>x.name.toUpperCase().trim()===d.name.toUpperCase().trim());
+              if(dl) onOpenDealer(dl.id);
+            }}
+            className="btnp"
+            style={{
+              fontSize:11,
+              fontWeight:600,
+              padding:'4px 10px',
+              whiteSpace:'nowrap',
+              flexShrink:0,
+              display:'inline-flex',
+              alignItems:'center',
+              gap:4,
+              borderRadius:5,
+            }}>
+            👤 View
           </button>
 
-          <div style={{width:1,height:28,background:'var(--b2)',flexShrink:0}}/>
-
-          {/* 2. Comment boxes */}
-          {/* <div style={{display:'flex',gap:6,alignItems:'center',flex:1,minWidth:200,flexWrap:'wrap'}}>
-            {notes.map((v,i)=>(
-              <input key={i} className="inp" value={v} onChange={e=>setNote(i,e.target.value)}
-                placeholder={`Comment ${i+1}...`}
-                style={{flex:1,minWidth:100,fontSize:11}}
-                onKeyDown={e=>e.key==='Enter'&&saveNotes()}/>
-            ))}
-            <button onClick={saveNotes} disabled={saving||!notes.some(Boolean)}
-              className="btn" style={{fontSize:11,padding:'5px 10px',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4,
-                color:saved?'#34d399':'var(--t2)',border:saved?'1px solid #34d399':'1px solid var(--b2)'}}>
-              {saving?<RefreshCw size={10} style={{animation:'spin .7s linear infinite'}}/>:saved?<Check size={10}/>:<MessageSquare size={10}/>}
-              {saved?'Saved!':'Save'}
-            </button>
-          </div> */}
-
-          <div style={{width:1,height:28,background:'var(--b2)',flexShrink:0}}/>
-
-          {/* 3. Follow-up date */}
-          <button onClick={()=>setActiveDealer(d)}
-            className="btn" style={{fontSize:11,padding:'6px 12px',display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',flexShrink:0,
-              color:'var(--acc)',border:'1px solid rgba(99,102,241,0.3)'}}>
-            <Calendar size={12}/> Add Follow-up Date
+          {/* 2. Add Follow-up Date */}
+          <button
+            onClick={()=>setActiveDealer(d)}
+            className="btn"
+            style={{
+              fontSize:11,
+              fontWeight:600,
+              padding:'4px 10px',
+              display:'inline-flex',
+              alignItems:'center',
+              gap:4,
+              whiteSpace:'nowrap',
+              flexShrink:0,
+              color:'#a5b4fc',
+              border:'1px solid rgba(99,102,241,0.4)',
+              background:'rgba(99,102,241,0.08)',
+              borderRadius:5,
+            }}>
+            <Calendar size={11}/> Follow-up
           </button>
 
-          {/* 4. Did not pick */}
-          <button onClick={logNoPickup}
-            className="btn" style={{fontSize:11,padding:'6px 12px',display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',flexShrink:0,
-              color:'#f87171',border:'1px solid rgba(248,113,113,0.3)'}}>
-            <PhoneMissed size={12}/> Did Not Pick Call
+          {/* 3. Did Not Pick Call */}
+          <button
+            onClick={logNoPickup}
+            className="btn"
+            style={{
+              fontSize:11,
+              fontWeight:600,
+              padding:'4px 10px',
+              display:'inline-flex',
+              alignItems:'center',
+              gap:4,
+              whiteSpace:'nowrap',
+              flexShrink:0,
+              color:'#fca5a5',
+              border:'1px solid rgba(248,113,113,0.4)',
+              background:'rgba(248,113,113,0.08)',
+              borderRadius:5,
+            }}>
+            <PhoneMissed size={11}/> No pick
           </button>
-
         </div>
       </td>
     </tr>
@@ -5932,7 +5979,7 @@ function ExpandedRow({ d, dealers, onOpenDealer, setActiveDealer, allMonthCols, 
 
 // ── Main Outstanding Component ────────────────────────────────────────────────
 export default function Outstanding({ dealers, users, onOpenDealer, currentUser, outstandingData=[], setOutstandingData }) {
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
   const [loading,      setLoading]    = useState(false); // don't show loading if data passed from parent
   const [uploading,    setUploading]  = useState(false);
   const [error,        setError]      = useState('');
@@ -5968,7 +6015,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
       }
       // DB empty — try loading from sheet URL
       const allUsers = Object.values(users);
-      const source = allUsers.find(u=>u.role==='admin'&&u.url_outstanding)||allUsers.find(u=>u.url_outstanding);
+      const source = allUsers.find(u=>(u.role==='admin'||u.role==='superadmin')&&u.url_outstanding)||allUsers.find(u=>u.url_outstanding);
       if(source?.url_outstanding){
         const csv  = await fetchCSV(source.url_outstanding);
         const rows = parseOutstandingCSV(csv, source.id);
@@ -6024,15 +6071,66 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
   },[followups]);
 
   const filtered = useMemo(()=>{
+    // Today as a YYYY-MM-DD string in local time, e.g. "2026-06-01"
+    const todayStrLocal = (() => {
+      const t = new Date();
+      return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    })();
+    const todayMs = new Date(todayStrLocal + 'T00:00:00').getTime();
+
     let d=filteredOutstanding.map(x=>{
       const nameKey = x.name.toLowerCase().trim();
       // Try exact match first, then partial match for name variations
-      const dFu = followupMap[nameKey] || 
+      const dFu = followupMap[nameKey] ||
         Object.entries(followupMap).find(([k])=>k.includes(nameKey)||nameKey.includes(k))?.[1] || [];
+
+      // ── Compute a sort bucket for this dealer ───────────────────────
+      // Bucket 0 (TOP):    has any follow-up dated EXACTLY TODAY
+      // Bucket 1:          has overdue follow-ups (date < today) — most recent overdue first
+      // Bucket 2:          has upcoming follow-ups (date > today) — closest future first
+      // Bucket 3 (BOTTOM): no follow-up records at all
+      //
+      // Within a bucket we use a secondary timestamp for ordering:
+      //   - Bucket 0: most-recent createdAt first (newest activity today on top)
+      //   - Bucket 1: most-recent past date (smallest "days overdue")
+      //   - Bucket 2: closest future date (smallest "days until")
+      //   - Bucket 3: largest outstanding amount first
+      let bucket = 3;       // default: no follow-up
+      let sortKey = 0;       // smaller = higher within the bucket
+      let mostRecentToday = -Infinity;
+      let mostRecentPast  = -Infinity;
+      let closestFuture   = Infinity;
+
+      for(const f of dFu){
+        if(!f.followupDate) continue;
+        // followupDate is 'YYYY-MM-DD'
+        const fDateMs = new Date(f.followupDate + 'T00:00:00').getTime();
+        if(isNaN(fDateMs)) continue;
+        if(f.followupDate === todayStrLocal){
+          // TODAY — use createdAt for tie-breaking (latest entry of today on top)
+          const cMs = new Date(f.createdAt || f.updatedAt || todayMs).getTime();
+          if(cMs > mostRecentToday) mostRecentToday = cMs;
+        } else if(fDateMs < todayMs){
+          if(fDateMs > mostRecentPast) mostRecentPast = fDateMs;
+        } else {
+          if(fDateMs < closestFuture)  closestFuture  = fDateMs;
+        }
+      }
+
+      if(mostRecentToday > -Infinity){
+        bucket = 0; sortKey = -mostRecentToday;  // negative so larger createdAt → higher
+      } else if(mostRecentPast > -Infinity){
+        bucket = 1; sortKey = -mostRecentPast;   // negative so most-recent past → higher
+      } else if(closestFuture < Infinity){
+        bucket = 2; sortKey = closestFuture;     // positive so soonest future → higher
+      }
+
       return {
         ...x,
         matchedSalesman: dealerSmMap[nameKey]||null,
         dealerFollowups: dFu,
+        _bucket: bucket,
+        _sortKey: sortKey,
       };
     });
     if(tab==='outstanding') d=d.filter(x=>x.latestOutstanding>0);
@@ -6040,6 +6138,27 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
     if(tab==='followups')   d=d.filter(x=>x.dealerFollowups.some(f=>f.status==='pending'));
     if(search) d=d.filter(x=>x.name.toLowerCase().includes(search.toLowerCase()));
     if(isAdmin&&smFilter.length>0) d=d.filter(x=>x.matchedSalesman&&smFilter.includes(x.matchedSalesman.id));
+
+    d.sort((a, b) => {
+      // First by bucket (0 → top, 3 → bottom)
+      if(a._bucket !== b._bucket) return a._bucket - b._bucket;
+      // Then by sortKey within the same bucket
+      if(a._sortKey !== b._sortKey) return a._sortKey - b._sortKey;
+      // Last tiebreaker: bigger outstanding first
+      return (b.latestOutstanding || 0) - (a.latestOutstanding || 0);
+    });
+
+    // DEBUG: print the top 8 dealers and their bucket assignments so we can
+    // verify the sort is doing what we expect. Bucket 0=TODAY, 1=overdue,
+    // 2=future, 3=no follow-up. Comment out if too noisy.
+    console.log('[Outstanding sort] today =', todayStrLocal, '— top 8:',
+      d.slice(0, 8).map(x => ({
+        name: x.name,
+        bucket: x._bucket,
+        followups: (x.dealerFollowups || []).map(f => f.followupDate).filter(Boolean),
+      }))
+    );
+
     return d;
   },[outstandingData,dealerSmMap,followupMap,tab,search,smFilter,isAdmin]);
 
@@ -6049,10 +6168,22 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
   const pendingFu      = followups.filter(f=>f.status==='pending');
   const overdueFu      = pendingFu.filter(f=>daysUntil(f.followupDate)<0);
   const smOptions      = Object.values(users).filter(u=>u.role==='salesman').map(s=>s.id);
-  const toggle         = id=>setExpanded(e=>({...e,[id]:!e[id]}));
+  // Accordion: only ONE row open at a time. Clicking the same row again closes
+  // it; clicking a different row closes the previous and opens the new one.
+  const toggle         = id=>setExpanded(e=>(e[id] ? {} : { [id]: true }));
 
   return (
     <div className="fade">
+      {/* Scoped CSS to make the expanded row feel continuous with its dealer
+          row above (no horizontal divider between them). */}
+      <style>{`
+        tr.os-row-open > td {
+          border-bottom: 0 !important;
+        }
+        tr.os-expanded-row > td {
+          border-top: 0 !important;
+        }
+      `}</style>
       <div style={{marginBottom:16}}>
         <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'.15em',marginBottom:4}}>Payments</div>
         <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
@@ -6073,6 +6204,30 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
             onChange={e=>{if(e.target.files[0])handleUpload(e.target.files[0]);e.target.value='';}}/>
           <button onClick={()=>fileRef.current?.click()} disabled={uploading} className="btnp" style={{display:'flex',alignItems:'center',gap:6}}>
             <Upload size={13}/>{uploading?'Uploading...':'Upload Outstanding'}
+          </button>
+          <button onClick={() => {
+            // Build sample CSV in the exact format the upload route expects:
+            //   first column = "Dealer Name", remaining columns = months
+            //   from the current MO list (each column gets a sample amount).
+            const months = (allMonthCols && allMonthCols.length > 0)
+              ? allMonthCols
+              : ['Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25','Jan-26','Feb-26','Mar-26','Apr-26','May-26'];
+            const headers = ['Dealer Name', ...months];
+            const sampleRows = [
+              ['AADINATH PLYWOOD AND HARDWARE', ...months.map((_,i) => [36000, 100625, 169650, 200000, 185000, 170000, 155000, 140000, 120000, 100000, 80000][i] || 50000)],
+              ['BHATTAD PLYWOODS',              ...months.map((_,i) => [25000,  60000,  90000, 110000, 100000,  95000,  80000,  70000,  60000,  50000, 30000][i] || 40000)],
+              ['YOUR DEALER NAME HERE',         ...months.map(() => 0)],
+            ];
+            const escape = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+            const csv = [headers, ...sampleRows].map(r => r.map(escape).join(',')).join('\n');
+            const a = document.createElement('a');
+            a.href = 'data:text/csv;charset=utf-8,﻿' + encodeURIComponent(csv);
+            a.download = 'Outstanding_Template.csv';
+            a.click();
+          }}
+            className="btn"
+            style={{display:'flex',alignItems:'center',gap:6,color:'#a5b4fc',border:'1px solid rgba(99,102,241,0.4)'}}>
+            <Download size={13}/> Download Sample
           </button>
         </>}
         <button onClick={()=>{loadFromDB();loadFollowups();}} disabled={loading} className="btn" style={{display:'flex',alignItems:'center',gap:6}}>
@@ -6166,8 +6321,6 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
               <thead><tr>
                 <th>#</th><th>Dealer</th>
                 {allMonthCols.map(m=><th key={m} style={{textAlign:'right'}}>{m}</th>)}
-                <th style={{textAlign:'right'}}>Latest</th>
-                <th style={{textAlign:'right'}}>Trend</th>
                 <th style={{textAlign:'center'}}>Follow-up</th>
               </tr></thead>
               <tbody>
@@ -6183,7 +6336,17 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
 
                   return(
                     <React.Fragment key={d.id}>
-                      <tr style={{background:cleared?'rgba(52,211,153,0.03)':'transparent',cursor:'pointer'}} onClick={()=>toggle(d.id)}>
+                      <tr
+                        style={{
+                          background: isOpen ? 'var(--bg2)' : (cleared ? 'rgba(52,211,153,0.03)' : 'transparent'),
+                          cursor: 'pointer',
+                        }}
+                        // When expanded, hide the row's bottom border so the
+                        // dealer row + expanded panel feel like one unit, no
+                        // horizontal line between them.
+                        className={isOpen ? 'os-row os-row-open' : 'os-row'}
+                        onClick={()=>toggle(d.id)}
+                      >
                         <td style={{color:'var(--t3)',fontSize:11}}>{i+1}</td>
                         <td style={{maxWidth:220}}>
                           <div style={{fontWeight:600,color:'var(--t1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</div>
@@ -6233,14 +6396,6 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
                             {v>0?fmt(v):'—'}
                           </td>);
                         })}
-                        <td style={{textAlign:'right',fontWeight:700,color:cleared?'#34d399':'#f87171',fontSize:13}}>
-                          {cleared?'✓ Nil':fmt(d.latestOutstanding)}
-                        </td>
-                        <td style={{textAlign:'right'}}>
-                          {d.trend>0?<span style={{color:'#f87171',fontSize:11}}>▲{fmt(d.trend)}</span>
-                          :d.trend<0?<span style={{color:'#34d399',fontSize:11}}>▼{fmt(Math.abs(d.trend))}</span>
-                          :<span style={{color:'var(--t3)',fontSize:11}}>—</span>}
-                        </td>
                         <td style={{textAlign:'center'}} onClick={e=>e.stopPropagation()}>
                           <button onClick={()=>setActiveDealer(d)} style={{
                             padding:'4px 8px',borderRadius:6,fontSize:10,cursor:'pointer',

@@ -1721,6 +1721,30 @@ export const api = {
     headers:authHeaders(),
     body: JSON.stringify({ dryRun }),
   }).then(handle),
+
+  // Superadmin: get a new JWT for the target user (impersonation).
+  // The returned token has `impersonatedBy` claim so the UI can show a banner.
+  impersonate: (targetUserId) => fetch(`${BASE}/auth/impersonate/${encodeURIComponent(targetUserId)}`,{
+    method:'POST',
+    headers:authHeaders(),
+  }).then(handle),
+
+  // While impersonating, issue a fresh JWT for the original superadmin.
+  returnToSelf: () => fetch(`${BASE}/auth/return-to-self`,{
+    method:'POST',
+    headers:authHeaders(),
+  }).then(handle),
+
+  createUser: (data) => fetch(`${BASE}/auth/users`,{
+    method:'POST',
+    headers:authHeaders(),
+    body: JSON.stringify(data),
+  }).then(handle),
+
+  deleteUser: (id) => fetch(`${BASE}/auth/users/${encodeURIComponent(id)}`,{
+    method:'DELETE',
+    headers:authHeaders(),
+  }).then(handle),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

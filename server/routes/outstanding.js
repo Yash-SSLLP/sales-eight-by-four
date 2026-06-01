@@ -24,10 +24,13 @@ const toPlain = (doc) => {
   return { _id:doc._id?.toString(), dealerName:doc.dealerName||'', monthlyOutstanding:mo };
 };
 
+// Staff = admin OR superadmin (both see all outstanding)
+const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
 router.get('/', protect, async (req, res) => {
   try {
     const all = await Outstanding.find({});
-    if(req.user.role==='admin') return res.json(all.map(toPlain));
+    if(isStaff(req)) return res.json(all.map(toPlain));
     const Dealer = mongoose.models.Dealer;
     if(!Dealer) return res.json([]);
     const myDealers = await Dealer.find({salesman:req.user.id},'name').lean();
@@ -37,6 +40,14 @@ router.get('/', protect, async (req, res) => {
 });
 
 router.post('/upload', protect, adminOnly, upload.single('file'), async (req,res) => {
+  // IMPORTANT (data safety contract):
+  //   This route ONLY touches the `Outstanding` collection (per-month amounts).
+  //   It NEVER touches `OutstandingFollowup` — your comments, "Did not pick"
+  //   entries, scheduled follow-up dates, etc. all live in that separate
+  //   collection and are completely preserved by this upload.
+  //   Additionally: a BLANK/empty cell in the sheet means "no change" for
+  //   that month — we only overwrite a month's amount when the sheet has a
+  //   non-blank value for it. To set a month to zero, write "0" explicitly.
   try {
     if(!req.file) return res.status(400).json({error:'file required'});
     const wb=XLSX.read(req.file.buffer,{type:'buffer'});
@@ -45,32 +56,51 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req,res
     const headers=Object.keys(rows[0]);
     const nameCol=headers.find(h=>/dealer|name|party/i.test(h))||headers[0];
     const monthCols=headers.filter(h=>h!==nameCol&&String(h).trim());
-    const results={added:0,updated:0,errors:[]};
+    const results={added:0,updated:0,skippedBlanks:0,errors:[]};
     for(const row of rows){
       const dealerName=String(row[nameCol]||'').trim();
       if(!dealerName||dealerName.length<2) continue;
       if(/^[\d\s,₹]+$/.test(dealerName)) continue;
       if(['total','totals','dealer name','name'].includes(dealerName.toLowerCase())) continue;
+
+      // Build the per-month patch. Blank cells are SKIPPED (preserved),
+      // explicit "0" is allowed (sets the month to zero).
       const mo={};
-      monthCols.forEach(m=>{ const v=row[m]; if(m.trim()) mo[m.trim()]=v?Math.round(parseFloat(String(v).replace(/[^\d.-]/g,''))||0):0; });
+      monthCols.forEach(m => {
+        const monthKey = m.trim();
+        if(!monthKey) return;
+        const raw = row[m];
+        const sv  = (raw === null || raw === undefined) ? '' : String(raw).trim();
+        if(sv === ''){ results.skippedBlanks++; return; }     // blank cell — leave existing value alone
+        const parsed = Math.round(parseFloat(sv.replace(/[^\d.-]/g,'')) || 0);
+        mo[monthKey] = parsed;
+      });
+
       try{
         const rx=new RegExp(`^${dealerName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i');
         const ex=await Outstanding.findOne({dealerName:rx});
         if(ex){
+          // Merge: start with existing months, overlay only the non-blank cells from sheet.
+          // This preserves months the sheet doesn't mention AND preserves blanks.
           const merged={};
           if(ex.monthlyOutstanding instanceof Map) ex.monthlyOutstanding.forEach((v,k)=>{merged[k]=Number(v)||0;});
           else if(ex.monthlyOutstanding) Object.assign(merged,ex.monthlyOutstanding);
           Object.assign(merged,mo);
           await Outstanding.findByIdAndUpdate(ex._id,{monthlyOutstanding:merged});
           results.updated++;
-        }else{
+        } else {
+          // New dealer — only adds months that have values in the sheet
           await Outstanding.create({dealerName,monthlyOutstanding:mo});
           results.added++;
         }
       }catch(e){results.errors.push(`${dealerName}: ${e.message}`);}
     }
+    console.log(`[OUTSTANDING UPLOAD] added=${results.added} updated=${results.updated} blanksSkipped=${results.skippedBlanks} errors=${results.errors.length}`);
     res.json(results);
-  }catch(e){res.status(500).json({error:e.message});}
+  }catch(e){
+    console.error('[OUTSTANDING UPLOAD]', e.message);
+    res.status(500).json({error:e.message});
+  }
 });
 
 router.put('/:name', protect, adminOnly, async (req,res) => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Bell, CheckSquare, Square, Trash2, Calendar, MessageSquare, RefreshCw, DollarSign } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from './UI';
+import { confirmDialog } from './Toast';
 
 const daysUntil = d => Math.ceil((new Date(d) - new Date().setHours(0,0,0,0)) / 86400000);
 
@@ -27,7 +28,8 @@ export default function FollowupsHub({ notes=[], dealers=[], users={}, onUpdateN
   };
 
   const deleteOutFu = async (id) => {
-    if(!confirm('Delete follow-up?')) return;
+    const ok = await confirmDialog({ title:'Delete follow-up?', confirmText:'Delete', danger:true });
+    if(!ok) return;
     await api.deleteFollowup(id);
     setOutFollowups(f => f.filter(x => x._id !== id));
   };

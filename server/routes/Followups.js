@@ -17,9 +17,12 @@ const followupSchema = new mongoose.Schema({
 
 const OutstandingFollowup = mongoose.models.OutstandingFollowup || mongoose.model('OutstandingFollowup', followupSchema);
 
+// Staff = admin OR superadmin (both see all follow-ups)
+const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
+
 router.get('/', protect, async (req,res) => {
   try {
-    if(req.user.role==='admin'){
+    if(isStaff(req)){
       return res.json(await OutstandingFollowup.find({}).sort({createdAt:-1}));
     }
     const Dealer = mongoose.models.Dealer;

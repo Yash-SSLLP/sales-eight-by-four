@@ -1707,6 +1707,14 @@ export const api = {
   // for months that have achievement > 0 but no per-month target stored.
   repairTargets: () => fetch(`${BASE}/dealers/repair-targets`,{method:'POST',headers:authHeaders()}).then(handle),
 
+  // Admin: DESTRUCTIVE — remove a single month's data (monthlyData[label])
+  // from every dealer. Use when removing a future month that should reset
+  // cleanly the next time it's added back.
+  deleteMonth: (label) => fetch(`${BASE}/dealers/month/${encodeURIComponent(label)}`,{
+    method:'DELETE',
+    headers:authHeaders(),
+  }).then(handle),
+
   // Admin: DESTRUCTIVE — delete every dealer record. Used to start fresh.
   wipeAllDealers: () => fetch(`${BASE}/dealers/wipe-all`,{
     method:'POST',

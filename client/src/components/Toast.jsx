@@ -76,12 +76,11 @@ function Toast({ t, onClose }){
 }
 
 function ConfirmModal({ c, onResolve }){
-  // Allow Enter/Escape on the modal
+  // Only Escape dismisses. We intentionally do NOT bind Enter to confirm,
+  // and the confirm button is NOT autoFocused — both choices avoid the
+  // "I accidentally hit Enter and the destructive action ran" footgun.
   useEffect(()=>{
-    const onKey = (e) => {
-      if(e.key === 'Escape') onResolve(false);
-      if(e.key === 'Enter')  onResolve(true);
-    };
+    const onKey = (e) => { if(e.key === 'Escape') onResolve(false); };
     window.addEventListener('keydown', onKey);
     return ()=>window.removeEventListener('keydown', onKey);
   },[onResolve]);
@@ -121,7 +120,7 @@ function ConfirmModal({ c, onResolve }){
               color:'var(--t2)', padding:'7px 14px', borderRadius:6,
               fontSize:12, cursor:'pointer',
             }}>{c.cancelText}</button>
-          <button onClick={()=>onResolve(true)} autoFocus
+          <button onClick={()=>onResolve(true)}
             style={{
               background: c.danger ? '#dc2626' : 'var(--acc)',
               border:'none', color:'#fff',

@@ -260,7 +260,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Users, Target, Award, Activity, RefreshCw, Calendar, Plus, Trash2, Check, LogIn, UserPlus, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
+import { Users, Target, Award, Activity, RefreshCw, Calendar, Plus, Trash2, Check, LogIn, UserPlus, ChevronDown, ShieldCheck, Shield, Edit3 } from 'lucide-react';
 import { MO as MO_CONST } from '../constants';
 import { pct, spct, pclr, monthTarget } from '../utils';
 import { useMonth } from '../context';
@@ -277,6 +277,10 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
   const [tab,setTab]=useState('summary');
   const [newMonth,setNewMonth]=useState('');
   const [newMonthErr,setNewMonthErr]=useState('');
+  // Trash icons next to each month are hidden by default — only revealed
+  // when the user explicitly enters "Edit" mode. Prevents accidental
+  // remove-month clicks while just browsing.
+  const [monthsEditMode, setMonthsEditMode] = useState(false);
   const sms=Object.values(users).filter(u=>u.role==='salesman');
 
   // ── Login-as dropdown (superadmin only) ─────────────────────────────────
@@ -615,7 +619,22 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
 
           {/* All months list */}
           <div className="card">
-            <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>All Months ({(monthConfig?.MO||MO).length})</div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700}}>All Months ({(monthConfig?.MO||MO).length})</div>
+              <button
+                onClick={()=>setMonthsEditMode(v=>!v)}
+                className="btn"
+                title={monthsEditMode ? 'Hide trash icons' : 'Show trash icons so you can remove months'}
+                style={{
+                  fontSize:11, padding:'4px 10px',
+                  display:'flex', alignItems:'center', gap:5,
+                  background: monthsEditMode ? 'rgba(248,113,113,0.10)' : 'transparent',
+                  borderColor: monthsEditMode ? '#7f1d1d' : 'var(--b2)',
+                  color: monthsEditMode ? '#fca5a5' : 'var(--t2)',
+                }}>
+                {monthsEditMode ? (<><Check size={12}/> Done</>) : (<><Edit3 size={12}/> Manage</>)}
+              </button>
+            </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}}>
               {(monthConfig?.MO||MO).map((m,i)=>{
                 const isCurrent=i===(monthConfig?.currentIdx??10);
@@ -630,15 +649,40 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
                       <div style={{fontSize:12,fontWeight:600,color:isCurrent?'var(--acc)':'var(--t1)'}}>{m}</div>
                       {isCurrent&&<div style={{fontSize:9,color:'var(--acc)'}}>CURRENT</div>}
                     </div>
-                    {!isCurrent&&(
+                    {/* Trash icon only visible when user clicked "Manage" */}
+                    {!isCurrent && monthsEditMode &&(
                       <button onClick={async ()=>{
-                        const ok = await confirmDialog({ title:'Remove ' + m + ' from selector?', message:'Data is NOT deleted — just hidden.', confirmText:'Remove', danger:true });
-                        if(!ok) return;
-                        const curMO=(monthConfig?.MO||MO).filter(x=>x!==m);
                         const curIdx=monthConfig?.currentIdx??10;
+                        // A "future" month sits at an index after the current
+                        // month. For those we actually DELETE the data so a
+                        // re-add later starts clean. For past months we keep
+                        // the safer "hide only" behaviour.
+                        const isFuture = i > curIdx;
+                        const ok = await confirmDialog({
+                          title: (isFuture?'Delete future month ':'Remove ') + m + (isFuture?'?':' from selector?'),
+                          message: isFuture
+                            ? 'This will permanently DELETE ' + m + ' data from every dealer in the database. If you add ' + m + ' back later, it will start empty.'
+                            : 'Data is NOT deleted — just hidden from the selector. You can re-add ' + m + ' later and the old data will still be there.',
+                          confirmText: isFuture ? 'Delete ' + m : 'Hide ' + m,
+                          danger: true,
+                        });
+                        if(!ok) return;
+                        try {
+                          if(isFuture){
+                            const res = await api.deleteMonth(m);
+                            notify.success('Deleted ' + m + ' from ' + (res?.dealersTouched ?? 0) + ' dealers');
+                          } else {
+                            notify.info(m + ' hidden from selector (data kept)');
+                          }
+                        } catch(err){
+                          notify.error('Failed to delete ' + m + ': ' + err.message);
+                          return;
+                        }
+                        const curMO=(monthConfig?.MO||MO).filter(x=>x!==m);
                         const newIdx=curIdx>i?curIdx-1:curIdx;
                         if(saveMonthConfig) saveMonthConfig({MO:curMO,currentIdx:Math.min(newIdx,curMO.length-1)});
-                      }} style={{background:'none',border:'none',color:'#f87171',cursor:'pointer',padding:2}}>
+                      }} style={{background:'none',border:'none',color:'#f87171',cursor:'pointer',padding:2}}
+                      title={i > (monthConfig?.currentIdx??10) ? 'Delete future month (data + slot)' : 'Hide from selector (keeps data)'}>
                         <Trash2 size={12}/>
                       </button>
                     )}

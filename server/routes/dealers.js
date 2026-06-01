@@ -244,6 +244,29 @@ router.post('/dedupe', protect, adminOnly, async (req, res) => {
   }
 });
 
+// ── DELETE /api/dealers/month/:label — admin only (DESTRUCTIVE) ────────────
+// Removes the monthlyData entry for the given label (e.g., "Jun-26") from
+// EVERY dealer. Use this when removing a future/empty month so that re-adding
+// it later starts truly empty (no stale data resurrects). Returns the number
+// of dealers touched.
+router.delete('/month/:label', protect, adminOnly, async (req, res) => {
+  try {
+    const label = (req.params.label || '').trim();
+    if(!label) return res.status(400).json({ error:'month label required' });
+
+    // $unset the dotted-path key from each dealer that has it.
+    const result = await Dealer.updateMany(
+      { ['monthlyData.' + label]: { $exists: true } },
+      { $unset: { ['monthlyData.' + label]: '' } }
+    );
+    console.log(`[DELETE MONTH] label=${label} touched=${result.modifiedCount} dealers`);
+    res.json({ ok:true, label, dealersTouched: result.modifiedCount });
+  } catch(e){
+    console.error('[DELETE MONTH]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── POST /api/dealers/wipe-all — admin only (DESTRUCTIVE) ──────────────────
 // Deletes ALL dealer records. Use to start fresh. Requires explicit confirm
 // in the request body to prevent accidents. Returns the number deleted.

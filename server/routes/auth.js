@@ -66,14 +66,14 @@ router.put('/users/:id', protect, async (req, res) => {
   // Authorize the edit
   let allowed = [];
   if(isSuperAdmin){
-    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role'];
+    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role','approver'];
   } else if(isAdmin){
     if(isSelf) {
       // editing own profile
       allowed = ['url','url2','url_outstanding','pass','name','color','ini'];
     } else if(target.role === 'salesman') {
       // admin editing a salesman
-      allowed = ['url','url2','url_outstanding','pass','name','color','ini'];
+      allowed = ['url','url2','url_outstanding','pass','name','color','ini','approver'];
     } else {
       return res.status(403).json({ error:'Admins cannot edit other admins or superadmins' });
     }

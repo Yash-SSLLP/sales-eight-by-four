@@ -8554,6 +8554,7 @@ import { useMonth } from '../context';
 import { StatusBadge, Avatar, KPI } from './UI';
 import { downloadDealerCard, shareDealerCard } from './dealerCard';
 import { notify, confirmDialog } from './Toast';
+import { VoiceTextarea } from './VoiceInput';
 import { Layers } from 'lucide-react';
 
 // ── Visits tab for this dealer (read-only timeline) ──────────────────────
@@ -9070,9 +9071,11 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
                       <input type="number" className="inp" value={fuAmount} onChange={e=>setFuAmount(e.target.value)} placeholder="0" style={{width:'100%'}}/>
                     </div>
                   </div>
-                  <textarea className="inp" value={fuComment} onChange={e=>setFuComment(e.target.value)}
-                    placeholder="Comment e.g. Cheque promised, Will pay after 15th..."
-                    rows={2} style={{width:'100%',resize:'vertical',fontFamily:'inherit',marginBottom:8}}/>
+                  <div style={{marginBottom:8}}>
+                    <VoiceTextarea value={fuComment} onChange={setFuComment}
+                      placeholder="Comment e.g. Cheque promised, Will pay after 15th… (tap 🎤 to speak)"
+                      rows={2}/>
+                  </div>
                   <div style={{display:'flex',gap:6}}>
                     <button onClick={addOutFollowup} disabled={fuSaving} className="btnp" style={{fontSize:11,display:'flex',alignItems:'center',gap:4}}>
                       {fuSaving?'Saving...':'Save Follow-up'}

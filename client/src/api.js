@@ -1776,6 +1776,11 @@ export const api = {
     headers:authHeaders(),
     body: JSON.stringify(body),
   }).then(handle),
+  visitsCheckout: (id, body) => fetch(`${BASE}/crm/visits/${encodeURIComponent(id)}/checkout`,{
+    method:'POST',
+    headers:authHeaders(),
+    body: JSON.stringify(body),
+  }).then(handle),
   visitsDelete: (id) => fetch(`${BASE}/crm/visits/${encodeURIComponent(id)}`,{
     method:'DELETE',
     headers:authHeaders(),
@@ -1800,6 +1805,16 @@ export const api = {
     method:'DELETE',
     headers:authHeaders(),
   }).then(handle),
+  // Bulk-upload leads from a CSV/XLSX file. Admin only on the server.
+  leadsUpload: (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch(`${BASE}/crm/leads/upload`, {
+      method:'POST',
+      headers:{ Authorization:`Bearer ${getToken()}` },
+      body: fd,
+    }).then(handle);
+  },
 
   // Leaves
   leavesList: (q={}) => {

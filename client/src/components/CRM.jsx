@@ -8,15 +8,35 @@ import {
   Camera, LogIn as IconIn, LogOut as IconOut, MapPin, Calendar, Plus,
   X, Phone, Mail, Building2, Trash2, Send, RefreshCw, Image as ImageIcon,
   CheckCircle2, AlertCircle, Briefcase, ClipboardList, Users as UsersIcon,
-  Filter,
+  Filter, Upload, Download,
 } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from './UI';
 import { notify, confirmDialog } from './Toast';
+import { VoiceTextarea, VoiceInput } from './VoiceInput';
 
 const todayStr = () => new Date().toISOString().slice(0,10);
 const fmtTime  = (d) => new Date(d).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' });
 const fmtDate  = (d) => new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+
+// Generic CSV exporter — UTF-8 BOM so Excel opens Indian rupees / accents
+// without garbling them.
+function exportCSV(filename, headers, rows){
+  if(!rows || rows.length === 0){
+    notify.info('Nothing to export');
+    return;
+  }
+  const esc = v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const csv = [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,﻿' + encodeURIComponent(csv);
+  a.download = filename;
+  a.click();
+  notify.success('Exported ' + rows.length + ' rows');
+}
 
 // Common pipeline statuses for leads
 const LEAD_STATUSES = ['NEW','CONTACTED','QUALIFIED','NEGOTIATION','WON','LOST'];
@@ -317,8 +337,10 @@ export function AttendancePage({ users, currentUser }){
         <div className="crm-row">
           <PhotoCapture photo={photo} setPhoto={setPhoto} label="Take selfie"/>
           <LocationCapture loc={loc} setLoc={setLoc}/>
-          <input className="inp" placeholder="Note (optional)" value={note} onChange={e=>setNote(e.target.value)}
-            style={{flex:'1 1 200px', minWidth:160}}/>
+          <div style={{flex:'1 1 200px', minWidth:160}}>
+            <VoiceInput placeholder="Note (optional) — tap 🎤 to speak"
+              value={note} onChange={setNote}/>
+          </div>
           <button onClick={()=>punch('in')} disabled={busy || !photo || lastType === 'in'}
             className="btnp"
             style={{
@@ -365,6 +387,22 @@ export function AttendancePage({ users, currentUser }){
               ))}
             </select>
           )}
+          <button onClick={()=>exportCSV(
+            'Attendance_' + todayStr() + '.csv',
+            ['User','Type','Date','Time','Address','City','State','Latitude','Longitude','Note'],
+            items.map(x => [
+              x.userName || x.userId,
+              x.type === 'in' ? 'IN' : 'OUT',
+              x.dateStr || (x.createdAt||'').slice(0,10),
+              x.createdAt ? new Date(x.createdAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '',
+              x.address || '', x.city || '', x.state || '',
+              x.lat ?? '', x.lng ?? '',
+              x.note || '',
+            ])
+          )} className="btn" title="Export attendance to Excel/CSV"
+            style={{padding:'4px 10px', fontSize:11, display:'inline-flex', alignItems:'center', gap:4}}>
+            <Download size={11}/> Export
+          </button>
           <button onClick={load} className="btn" style={{padding:'4px 10px', fontSize:11}}>
             <RefreshCw size={11}/>
           </button>
@@ -411,18 +449,52 @@ export function AttendancePage({ users, currentUser }){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VISITS PAGE
+// VISITS PAGE — Check-in / Check-out workflow
+//   * Salesman taps "Check in", captures selfie + (optional) note + GPS.
+//   * They go meet the party. Visit shows as IN-PROGRESS with a live timer.
+//   * On "Check out" they MUST enter discussion notes + selfie + GPS.
+//   * App shows today's total time spent on visits.
+//   * Salesman sees ONLY their own history; admin can filter by user.
+//   * Salesman cannot delete history. Admin/superadmin can.
+function fmtDuration(min){
+  if(!min || min < 0) return '0m';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return (h>0 ? h+'h ' : '') + m + 'm';
+}
+function liveDuration(start){
+  if(!start) return 0;
+  return Math.max(0, Math.round((Date.now() - new Date(start).getTime()) / 60000));
+}
+function fmtClock(d){
+  if(!d) return '—';
+  return new Date(d).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+}
+
 export function VisitsPage({ dealers, users, currentUser }){
   const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
-  const [items, setItems]     = useState([]);
+
+  // Check-in form state
+  const [ciPhoto, setCiPhoto] = useState('');
+  const [ciLoc,   setCiLoc]   = useState({ lat:null, lng:null });
+  const [ciDealer, setCiDealer] = useState('');
+  const [ciNote,   setCiNote]   = useState('');
+  const [ciBusy,   setCiBusy]   = useState(false);
+
+  // Check-out form state (per active visit)
+  const [coPhoto, setCoPhoto] = useState('');
+  const [coLoc,   setCoLoc]   = useState({ lat:null, lng:null });
+  const [coNote,  setCoNote]  = useState('');
+  const [coBusy,  setCoBusy]  = useState(false);
+
+  // List
+  const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [photo, setPhoto]     = useState('');
-  const [loc,   setLoc]       = useState({ lat:null, lng:null });
-  const [dealerName, setDealerName] = useState('');
-  const [comment, setComment] = useState('');
-  const [busy, setBusy]       = useState(false);
   const [filterUser, setFilterUser] = useState('');
-  const [zoom, setZoom]       = useState('');
+  const [zoom, setZoom] = useState('');
+  // Tick once per minute so the active-visit clock updates
+  const [, setTick] = useState(0);
+  useEffect(()=>{ const t = setInterval(()=>setTick(x=>x+1), 60000); return ()=>clearInterval(t); }, []);
 
   const load = async () => {
     setLoading(true);
@@ -435,27 +507,65 @@ export function VisitsPage({ dealers, users, currentUser }){
   };
   useEffect(()=>{ load(); }, [filterUser]);
 
-  const submit = async () => {
-    if(!dealerName.trim()){ notify.error('Party / Dealer name required'); return; }
-    if(!photo){ notify.error('Capture a photo first'); return; }
-    setBusy(true);
-    // Try matching against existing dealer roster to set dealerId
-    const match = (dealers || []).find(d => (d.name||'').toUpperCase().trim() === dealerName.toUpperCase().trim());
+  // Salesman's own dealer roster — only these names appear in the search.
+  const myDealerOptions = useMemo(()=>(dealers||[]).map(d=>d.name).filter(Boolean).slice(0, 1500), [dealers]);
+
+  // Active visit (in-progress) belonging to the current user
+  const myActive = items.find(v => v.status === 'in-progress' && v.userId === currentUser.id);
+
+  // Today's visits for current user — used for the day-total card
+  const today = todayStr();
+  const myToday = items.filter(v => v.userId === currentUser.id && v.dateStr === today);
+  const totalMins = myToday.reduce((sum, v) => {
+    if(v.status === 'completed') return sum + (v.durationMinutes || 0);
+    if(v.status === 'in-progress') return sum + liveDuration(v.checkInTime);
+    return sum;
+  }, 0);
+
+  const checkIn = async () => {
+    if(!ciDealer.trim()){ notify.error('Party / Dealer name required'); return; }
+    if(!ciPhoto){ notify.error('Capture a check-in photo first'); return; }
+    setCiBusy(true);
+    const match = (dealers || []).find(d => (d.name||'').toUpperCase().trim() === ciDealer.toUpperCase().trim());
     try {
       await api.visitsCreate({
         dealerId: match?.id || '',
-        dealerName: dealerName.trim(),
-        comment, photo,
-        lat: loc.lat, lng: loc.lng,
-        address: loc.address || '',
-        city:    loc.city    || '',
-        state:   loc.state   || '',
+        dealerName: ciDealer.trim(),
+        note:  ciNote,
+        photo: ciPhoto,
+        lat:   ciLoc.lat,
+        lng:   ciLoc.lng,
+        address: ciLoc.address || '',
+        city:    ciLoc.city    || '',
+        state:   ciLoc.state   || '',
       });
-      notify.success('Visit logged');
-      setDealerName(''); setComment(''); setPhoto('');
+      notify.success('Checked in — visit started');
+      setCiDealer(''); setCiNote(''); setCiPhoto('');
       load();
-    } catch(e){ notify.error('Save: ' + e.message); }
-    setBusy(false);
+    } catch(e){ notify.error('Check-in: ' + e.message); }
+    setCiBusy(false);
+  };
+
+  const checkOut = async () => {
+    if(!myActive) return;
+    if(!coNote || !coNote.trim()){ notify.error('Discussion notes are required at check-out'); return; }
+    if(!coPhoto){ notify.error('Capture a check-out photo first'); return; }
+    setCoBusy(true);
+    try {
+      await api.visitsCheckout(myActive._id, {
+        photo: coPhoto,
+        note:  coNote,
+        lat:   coLoc.lat,
+        lng:   coLoc.lng,
+        address: coLoc.address || '',
+        city:    coLoc.city    || '',
+        state:   coLoc.state   || '',
+      });
+      notify.success('Checked out — visit completed');
+      setCoNote(''); setCoPhoto(''); setCoLoc({ lat:null, lng:null });
+      load();
+    } catch(e){ notify.error('Check-out: ' + e.message); }
+    setCoBusy(false);
   };
 
   const removeVisit = async (id) => {
@@ -468,41 +578,92 @@ export function VisitsPage({ dealers, users, currentUser }){
     } catch(e){ notify.error(e.message); }
   };
 
-  // Datalist of dealer names for quick autocomplete
-  const dealerOptions = useMemo(()=>(dealers||[]).map(d=>d.name).filter(Boolean).slice(0, 1200), [dealers]);
-
   return (
     <div className="fade" style={{display:'flex', flexDirection:'column', gap:14}}>
       <div>
         <div style={{fontSize:11, color:'var(--acc)', textTransform:'uppercase', letterSpacing:'.15em', marginBottom:4}}>CRM</div>
         <div className="crm-page-title" style={{fontSize:22, fontWeight:700}}>Visits</div>
         <div className="crm-page-sub" style={{fontSize:13, color:'var(--t3)', marginTop:4}}>
-          Log every dealer / party visit with photo + GPS + discussion notes.
-        </div>
-      </div>
-      <div className="card">
-        <div style={{fontSize:13, fontWeight:700, marginBottom:10, display:'flex', alignItems:'center', gap:8}}>
-          <ClipboardList size={14}/> Log a visit
-        </div>
-        <div style={{display:'flex', flexDirection:'column', gap:8}}>
-          <input className="inp" list="crm-dealer-list" placeholder="Party / Dealer name"
-            value={dealerName} onChange={e=>setDealerName(e.target.value)}/>
-          <datalist id="crm-dealer-list">
-            {dealerOptions.map(n => <option key={n} value={n}/>)}
-          </datalist>
-          <textarea className="inp" placeholder="What was discussed?" value={comment} onChange={e=>setComment(e.target.value)}
-            rows={3} style={{resize:'vertical', fontFamily:'inherit'}}/>
-          <div className="crm-row">
-            <PhotoCapture photo={photo} setPhoto={setPhoto} label="Capture visit photo"/>
-            <LocationCapture loc={loc} setLoc={setLoc}/>
-            <button onClick={submit} disabled={busy} className="btnp"
-              style={{display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6}}>
-              <Send size={13}/> {busy ? 'Saving…' : 'Save visit'}
-            </button>
-          </div>
+          Check in to a party, do the meeting, then check out with your discussion notes.
         </div>
       </div>
 
+      {/* Today summary */}
+      <div className="card" style={{display:'flex', alignItems:'center', gap:14, flexWrap:'wrap'}}>
+        <div>
+          <div style={{fontSize:10, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.12em'}}>Today</div>
+          <div style={{fontSize:18, fontWeight:700}}>{myToday.length} visit{myToday.length===1?'':'s'}</div>
+        </div>
+        <div style={{width:1, height:30, background:'var(--b1)'}}/>
+        <div>
+          <div style={{fontSize:10, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.12em'}}>Total time</div>
+          <div style={{fontSize:18, fontWeight:700, color:'#34d399'}}>{fmtDuration(totalMins)}</div>
+        </div>
+        {myActive && (
+          <>
+            <div style={{width:1, height:30, background:'var(--b1)'}}/>
+            <div>
+              <div style={{fontSize:10, color:'#fbbf24', textTransform:'uppercase', letterSpacing:'.12em'}}>In progress</div>
+              <div style={{fontSize:14, fontWeight:700, color:'#fbbf24'}}>
+                {myActive.dealerName} · {fmtDuration(liveDuration(myActive.checkInTime))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Active visit — show check-out card */}
+      {myActive ? (
+        <div className="card" style={{borderColor:'#fbbf24'}}>
+          <div style={{fontSize:13, fontWeight:700, marginBottom:6, display:'flex', alignItems:'center', gap:8, color:'#fbbf24'}}>
+            <ClipboardList size={14}/> Currently visiting · {myActive.dealerName}
+          </div>
+          <div style={{fontSize:11, color:'var(--t3)', marginBottom:10}}>
+            Checked in at {fmtClock(myActive.checkInTime)} · {fmtDuration(liveDuration(myActive.checkInTime))} elapsed
+            {myActive.checkInAddress ? ' · ' + myActive.checkInAddress : ''}
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:8}}>
+            <VoiceTextarea
+              placeholder="REQUIRED: what was discussed in the meeting…"
+              value={coNote} onChange={setCoNote} rows={6}/>
+            <div className="crm-row">
+              <PhotoCapture photo={coPhoto} setPhoto={setCoPhoto} label="Take check-out photo"/>
+              <LocationCapture loc={coLoc} setLoc={setCoLoc}/>
+              <button onClick={checkOut} disabled={coBusy || !coNote.trim() || !coPhoto} className="btnp"
+                style={{display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6,
+                        background:'#dc2626', borderColor:'#b91c1c'}}>
+                <IconOut size={13}/> {coBusy ? 'Saving…' : 'Check out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        // No active visit — show check-in form
+        <div className="card">
+          <div style={{fontSize:13, fontWeight:700, marginBottom:10, display:'flex', alignItems:'center', gap:8}}>
+            <IconIn size={14}/> Check in to a party
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:8}}>
+            <input className="inp" list="crm-dealer-list" placeholder="Party / Dealer name"
+              value={ciDealer} onChange={e=>setCiDealer(e.target.value)}/>
+            <datalist id="crm-dealer-list">
+              {myDealerOptions.map(n => <option key={n} value={n}/>)}
+            </datalist>
+            <VoiceInput placeholder="Quick note (optional) — tap 🎤 to speak"
+              value={ciNote} onChange={setCiNote}/>
+            <div className="crm-row">
+              <PhotoCapture photo={ciPhoto} setPhoto={setCiPhoto} label="Take check-in photo"/>
+              <LocationCapture loc={ciLoc} setLoc={setCiLoc}/>
+              <button onClick={checkIn} disabled={ciBusy || !ciDealer.trim() || !ciPhoto} className="btnp"
+                style={{display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6}}>
+                <IconIn size={13}/> {ciBusy ? 'Saving…' : 'Check in'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History */}
       <div className="card">
         <div className="row" style={{marginBottom:10}}>
           <div style={{fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:6}}>
@@ -518,6 +679,26 @@ export function VisitsPage({ dealers, users, currentUser }){
               ))}
             </select>
           )}
+          <button onClick={()=>exportCSV(
+            'Visits_' + todayStr() + '.csv',
+            ['User','Party','Status','Date','CheckIn','CheckOut','DurationMin','CheckInAddress','CheckOutAddress','CheckInNote','DiscussionNotes'],
+            items.map(v => [
+              v.userName || v.userId,
+              v.dealerName,
+              v.status === 'completed' ? 'COMPLETED' : 'IN-PROGRESS',
+              v.dateStr || (v.createdAt||'').slice(0,10),
+              v.checkInTime  ? new Date(v.checkInTime ).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '',
+              v.checkOutTime ? new Date(v.checkOutTime).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '',
+              v.durationMinutes ?? '',
+              v.checkInAddress  || v.address || '',
+              v.checkOutAddress || '',
+              v.checkInNote || '',
+              v.checkOutNote || v.comment || '',
+            ])
+          )} className="btn" title="Export visits to Excel/CSV"
+            style={{padding:'4px 10px', fontSize:11, display:'inline-flex', alignItems:'center', gap:4}}>
+            <Download size={11}/> Export
+          </button>
           <button onClick={load} className="btn" style={{padding:'4px 10px', fontSize:11}}>
             <RefreshCw size={11}/>
           </button>
@@ -526,41 +707,90 @@ export function VisitsPage({ dealers, users, currentUser }){
           <div style={{padding:14, color:'var(--t3)', textAlign:'center'}}>No visits yet.</div>
         ) : (
           <div style={{display:'flex', flexDirection:'column', gap:8, maxHeight:540, overflowY:'auto'}}>
-            {items.map(v => (
-              <div key={v._id} style={{
-                display:'flex', alignItems:'flex-start', gap:10, padding:'10px 12px',
-                background:'var(--bg2)', borderRadius:8, borderLeft:'3px solid var(--acc)',
-              }}>
-                {v.photo
-                  ? <img src={v.photo} alt="" onClick={()=>setZoom(v.photo)}
-                      style={{width:60, height:60, objectFit:'cover', borderRadius:6, cursor:'zoom-in', border:'1px solid var(--b2)', flexShrink:0}}/>
-                  : <div style={{width:60, height:60, borderRadius:6, background:'var(--bg1)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t3)', flexShrink:0}}><ImageIcon size={18}/></div>}
-                <div style={{flex:1, minWidth:0}}>
+            {items.map(v => {
+              const ciPhoto = v.checkInPhoto  || v.photo || '';
+              const coPhoto = v.checkOutPhoto || '';
+              const dur     = v.status === 'completed' ? (v.durationMinutes || 0) : liveDuration(v.checkInTime);
+              const inAddr  = v.checkInAddress  || v.address || '';
+              const outAddr = v.checkOutAddress || '';
+              const inNote  = v.checkInNote  || '';
+              const outNote = v.checkOutNote || v.comment || '';
+              return (
+                <div key={v._id} style={{
+                  display:'flex', flexDirection:'column', gap:8, padding:'10px 12px',
+                  background:'var(--bg2)', borderRadius:8,
+                  borderLeft:'3px solid ' + (v.status === 'in-progress' ? '#fbbf24' : '#34d399'),
+                }}>
+                  {/* Header line */}
                   <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
                     <div style={{fontSize:13, fontWeight:700}}>{v.dealerName}</div>
                     <span style={{fontSize:10, color:'var(--t3)'}}>by {v.userName || v.userId}</span>
-                    <span style={{marginLeft:'auto', fontSize:10, color:'var(--t3)'}}>{fmtTime(v.createdAt)}</span>
+                    <span style={{
+                      fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:3,
+                      background: v.status==='in-progress' ? 'rgba(251,191,36,0.15)' : 'rgba(52,211,153,0.15)',
+                      color:      v.status==='in-progress' ? '#fbbf24' : '#34d399',
+                    }}>{v.status === 'in-progress' ? 'IN PROGRESS' : 'COMPLETED'}</span>
+                    <span style={{marginLeft:'auto', fontSize:11, color:'var(--t2)', fontWeight:700}}>
+                      {fmtDuration(dur)}
+                    </span>
                   </div>
-                  {v.comment && <div style={{fontSize:12, color:'var(--t2)', marginTop:4, whiteSpace:'pre-wrap'}}>{v.comment}</div>}
-                  {v.address && (
-                    <div style={{fontSize:10, color:'#a5b4fc', marginTop:4, display:'flex', alignItems:'center', gap:3}}>
-                      <MapPin size={10}/> {v.address}
+
+                  {/* Times row */}
+                  <div style={{display:'flex', gap:18, fontSize:11, color:'var(--t3)', flexWrap:'wrap'}}>
+                    <span>📥 In: <b style={{color:'#34d399'}}>{fmtClock(v.checkInTime)}</b></span>
+                    {v.checkOutTime
+                      ? <span>📤 Out: <b style={{color:'#fbbf24'}}>{fmtClock(v.checkOutTime)}</b></span>
+                      : <span style={{color:'#fbbf24'}}>Awaiting check-out</span>}
+                  </div>
+
+                  {/* Photos row */}
+                  <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
+                    {ciPhoto && (
+                      <div>
+                        <div style={{fontSize:9, color:'var(--t3)', marginBottom:3}}>Check-in</div>
+                        <img src={ciPhoto} alt="" onClick={()=>setZoom(ciPhoto)} className="crm-photo-thumb-lg"/>
+                      </div>
+                    )}
+                    {coPhoto && (
+                      <div>
+                        <div style={{fontSize:9, color:'var(--t3)', marginBottom:3}}>Check-out</div>
+                        <img src={coPhoto} alt="" onClick={()=>setZoom(coPhoto)} className="crm-photo-thumb-lg"/>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notes */}
+                  {inNote && (
+                    <div style={{fontSize:11, color:'var(--t2)'}}>
+                      <span style={{color:'var(--t3)'}}>Check-in note: </span>{inNote}
                     </div>
                   )}
-                  {(v.lat || v.lng) && !v.address && (
-                    <div style={{fontSize:10, color:'var(--t3)', marginTop:4, display:'flex', alignItems:'center', gap:3}}>
-                      <MapPin size={10}/> {v.lat?.toFixed(4)}, {v.lng?.toFixed(4)}
+                  {outNote && (
+                    <div style={{fontSize:12, color:'var(--t1)', background:'var(--bg1)', padding:'6px 10px', borderRadius:6, borderLeft:'2px solid var(--acc)'}}>
+                      <span style={{color:'var(--t3)', fontSize:10}}>Discussion: </span>{outNote}
+                    </div>
+                  )}
+
+                  {/* Addresses */}
+                  {(inAddr || outAddr) && (
+                    <div style={{fontSize:10, color:'#a5b4fc', display:'flex', flexDirection:'column', gap:2}}>
+                      {inAddr  && <span><MapPin size={9} style={{display:'inline'}}/> In:  {inAddr}</span>}
+                      {outAddr && <span><MapPin size={9} style={{display:'inline'}}/> Out: {outAddr}</span>}
+                    </div>
+                  )}
+
+                  {/* Delete — staff only (salesmen can't tamper history) */}
+                  {isStaff && (
+                    <div style={{display:'flex', justifyContent:'flex-end'}}>
+                      <button onClick={()=>removeVisit(v._id)} title="Delete visit"
+                        style={{background:'none', border:'none', color:'#f87171', cursor:'pointer', padding:4, fontSize:11, display:'inline-flex', alignItems:'center', gap:4}}>
+                        <Trash2 size={11}/> Delete
+                      </button>
                     </div>
                   )}
                 </div>
-                {(isStaff || v.userId === currentUser.id) && (
-                  <button onClick={()=>removeVisit(v._id)} title="Delete visit"
-                    style={{background:'none', border:'none', color:'#f87171', cursor:'pointer', padding:4}}>
-                    <Trash2 size={13}/>
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -582,12 +812,47 @@ function _LeadsBody({ users, currentUser, isStaff }){
   const [filterUser, setFilterUser]     = useState('');
   const [showForm, setShowForm]         = useState(false);
   const [editing, setEditing]           = useState(null); // lead being viewed/updated
+  const [bulkBusy, setBulkBusy]         = useState(false);
+  const bulkFileRef = useRef(null);
 
   // Form state for create
   const [form, setForm] = useState({
     name:'', company:'', phone:'', email:'', city:'', state:'', source:'',
     status:'NEW', assignedTo:'', notes:'', value:0,
   });
+
+  // ── Bulk upload: download a starter template + handle file upload ────
+  const downloadLeadsTemplate = () => {
+    const headers = ['Name','Company','Phone','Email','City','State','Source','Status','AssignedTo','Value','Notes'];
+    const sampleAssignee = Object.values(users||{}).find(u=>u.role==='salesman');
+    const sample = [
+      ['Anil Kumar','Shree Plywoods','9876543210','anil@example.com','Pune','Maharashtra','Referral','NEW',
+       sampleAssignee?.name || '', 50000, 'Interested in 18mm sheets'],
+      ['Priya Sharma','Modern Interiors','9123456789','priya@example.com','Bengaluru','Karnataka','Website','CONTACTED',
+       sampleAssignee?.id || '', 120000, 'Quoted last week, follow up Mon'],
+    ];
+    const esc = v => { const s=String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+    const csv = [headers.map(esc).join(','), ...sample.map(r=>r.map(esc).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,﻿' + encodeURIComponent(csv);
+    a.download = 'Leads_Template.csv';
+    a.click();
+    notify.info('Template downloaded. Fill it and click "Upload Leads".');
+  };
+  const onBulkFile = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if(!f) return;
+    setBulkBusy(true);
+    try {
+      const res = await api.leadsUpload(f);
+      const errLine = res.errors?.length ? ' · ' + res.errors.length + ' warnings' : '';
+      notify.success(`Uploaded ${res.added || 0} leads (skipped ${res.skipped || 0}${errLine})`);
+      if(res.errors?.length){ console.warn('[leads upload warnings]', res.errors); }
+      load();
+    } catch(err){ notify.error('Upload failed: ' + err.message); }
+    setBulkBusy(false);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -650,11 +915,44 @@ function _LeadsBody({ users, currentUser, isStaff }){
             </select>
           )}
           {isStaff && (
-            <button onClick={()=>setShowForm(s=>!s)} className="btnp"
-              style={{display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', fontSize:11}}>
-              <Plus size={11}/> New Lead
-            </button>
+            <>
+              <input ref={bulkFileRef} type="file" accept=".csv,.xlsx,.xls"
+                style={{display:'none'}} onChange={onBulkFile}/>
+              <button onClick={downloadLeadsTemplate} className="btn"
+                title="Download a CSV template you can fill and upload"
+                style={{display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', fontSize:11}}>
+                <Download size={11}/> Template
+              </button>
+              <button onClick={()=>bulkFileRef.current?.click()} disabled={bulkBusy} className="btn"
+                title="Bulk-upload leads from CSV / Excel"
+                style={{
+                  display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', fontSize:11,
+                  background:'rgba(52,211,153,0.10)', color:'#34d399', border:'1px solid #15803d',
+                }}>
+                <Upload size={11}/> {bulkBusy ? 'Uploading…' : 'Upload Leads'}
+              </button>
+              <button onClick={()=>setShowForm(s=>!s)} className="btnp"
+                style={{display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', fontSize:11}}>
+                <Plus size={11}/> New Lead
+              </button>
+            </>
           )}
+          <button onClick={()=>exportCSV(
+            'Leads_' + todayStr() + '.csv',
+            ['Name','Company','Phone','Email','City','State','Source','Status','AssignedTo','Value','Notes','Updates','CreatedAt'],
+            items.map(L => [
+              L.name, L.company || '', L.phone || '', L.email || '', L.city || '', L.state || '',
+              L.source || '', L.status || 'NEW',
+              L.assignedName || L.assignedTo || '',
+              L.value || 0,
+              L.notes || '',
+              (L.updates || []).map(u => (u.byName||u.by) + ': ' + (u.comment || u.status || '')).join(' | '),
+              L.createdAt || '',
+            ])
+          )} className="btn" title="Export leads to Excel/CSV"
+            style={{padding:'4px 10px', fontSize:11, display:'inline-flex', alignItems:'center', gap:4}}>
+            <Download size={11}/> Export
+          </button>
           <button onClick={load} className="btn" style={{padding:'4px 10px', fontSize:11}}>
             <RefreshCw size={11}/>
           </button>
@@ -687,7 +985,11 @@ function _LeadsBody({ users, currentUser, isStaff }){
               </Field>
             </div>
             <div style={{marginTop:8}}>
-              <Field label="Notes"><textarea className="inp" rows={2} value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})}/></Field>
+              <Field label="Notes">
+                <VoiceTextarea rows={4} value={form.notes}
+                  onChange={v=>setForm({...form, notes:v})}
+                  placeholder="Initial notes…"/>
+              </Field>
             </div>
             <div style={{display:'flex', justifyContent:'flex-end', gap:8, marginTop:10}}>
               <button onClick={()=>setShowForm(false)} className="btn" style={{fontSize:12}}>Cancel</button>
@@ -854,9 +1156,11 @@ function LeadDetailModal({ lead, users, currentUser, isStaff, onClose, onSaved, 
         {/* Add an update */}
         <div style={{background:'var(--bg2)', borderRadius:8, padding:12, marginBottom:12}}>
           <div style={{fontSize:12, fontWeight:700, marginBottom:8}}>Add update</div>
-          <textarea className="inp" rows={2} placeholder="What happened? Any next steps?"
-            value={comment} onChange={e=>setComment(e.target.value)}
-            style={{resize:'vertical', fontFamily:'inherit', marginBottom:8}}/>
+          <div style={{marginBottom:8}}>
+            <VoiceTextarea rows={4}
+              placeholder="What happened? Any next steps?"
+              value={comment} onChange={setComment}/>
+          </div>
           <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
             <select className="inp" value={newStatus} onChange={e=>setNewStatus(e.target.value)}
               style={{padding:'6px 10px', fontSize:12, width:'auto'}}>
@@ -962,6 +1266,29 @@ function _LeavesBody({ users, currentUser, isStaff }){
             style={{display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', fontSize:11}}>
             <Plus size={11}/> Apply
           </button>
+          <button onClick={()=>exportCSV(
+            'Leaves_' + todayStr() + '.csv',
+            ['User','Type','From','To','DaysApplied','Status','Reason','ReviewedBy','ReviewComment','AppliedOn'],
+            items.map(l => {
+              const days = Math.max(1, Math.round(
+                (new Date(l.toDate) - new Date(l.fromDate)) / (1000*60*60*24)
+              ) + 1);
+              return [
+                l.userName || l.userId,
+                l.leaveType || '',
+                l.fromDate || '', l.toDate || '',
+                days,
+                l.status || '',
+                l.reason || '',
+                l.reviewedByName || '',
+                l.reviewComment || '',
+                l.createdAt || '',
+              ];
+            })
+          )} className="btn" title="Export leaves to Excel/CSV"
+            style={{padding:'4px 10px', fontSize:11, display:'inline-flex', alignItems:'center', gap:4}}>
+            <Download size={11}/> Export
+          </button>
           <button onClick={load} className="btn" style={{padding:'4px 10px', fontSize:11}}>
             <RefreshCw size={11}/>
           </button>
@@ -979,7 +1306,11 @@ function _LeavesBody({ users, currentUser, isStaff }){
               </Field>
             </div>
             <div style={{marginTop:8}}>
-              <Field label="Reason"><textarea className="inp" rows={2} value={form.reason} onChange={e=>setForm({...form, reason:e.target.value})}/></Field>
+              <Field label="Reason">
+                <VoiceTextarea rows={4} value={form.reason}
+                  onChange={v=>setForm({...form, reason:v})}
+                  placeholder="Why are you taking leave?"/>
+              </Field>
             </div>
             <div style={{display:'flex', justifyContent:'flex-end', gap:8, marginTop:10}}>
               <button onClick={()=>setShowForm(false)} className="btn" style={{fontSize:12}}>Cancel</button>
@@ -1015,9 +1346,19 @@ function _LeavesBody({ users, currentUser, isStaff }){
                       {l.fromDate} → {l.toDate}
                     </div>
                     {l.reason && <div style={{fontSize:11, color:'var(--t2)', marginTop:4, fontStyle:'italic'}}>{l.reason}</div>}
-                    {l.reviewComment && (
+                    {/* Show who is the designated approver for this salesman */}
+                    {(() => {
+                      const ap = users[l.userId]?.approver;
+                      const apName = ap ? (users[ap]?.name || ap) : null;
+                      return apName && l.status === 'PENDING' ? (
+                        <div style={{fontSize:10, color:'#a5b4fc', marginTop:4}}>
+                          Waiting on approver: {apName}
+                        </div>
+                      ) : null;
+                    })()}
+                    {l.reviewedByName && l.status !== 'PENDING' && (
                       <div style={{fontSize:11, color:'var(--t3)', marginTop:4}}>
-                        Reviewed by {l.reviewedByName}: {l.reviewComment}
+                        Reviewed by <b>{l.reviewedByName}</b>{l.reviewComment ? ': ' + l.reviewComment : ''}
                       </div>
                     )}
                   </div>

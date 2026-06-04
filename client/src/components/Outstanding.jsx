@@ -5643,6 +5643,7 @@ import { fetchCSV, parseOutstandingCSV } from '../utils';
 import { api, dbOutstandingToApp } from '../api';
 import { Avatar, MultiSelect } from './UI';
 import { notify, confirmDialog } from './Toast';
+import { VoiceTextarea } from './VoiceInput';
 
 const fmt      = v => v > 0 ? '₹' + Number(v).toLocaleString('en-IN') : '—';
 const todayStr = () => new Date().toISOString().slice(0,10);
@@ -5735,9 +5736,9 @@ function FollowupModal({ dealer, existingFollowups, onClose, onSaved, prefillMon
           {/* Main comment */}
           <div style={{marginBottom:8}}>
             <label style={{fontSize:10,color:'var(--t3)',display:'block',marginBottom:4,textTransform:'uppercase'}}>Comment</label>
-            <textarea className="inp" value={comment} onChange={e=>setComment(e.target.value)}
-              placeholder="e.g. Will pay after 15th, cheque promised..."
-              rows={2} style={{width:'100%',resize:'vertical',fontFamily:'inherit'}}/>
+            <VoiceTextarea value={comment} onChange={setComment}
+              placeholder="e.g. Will pay after 15th, cheque promised… (tap 🎤 to speak)"
+              rows={2}/>
           </div>
 
           {err&&<div style={{fontSize:11,color:'#f87171',marginBottom:8}}>{err}</div>}

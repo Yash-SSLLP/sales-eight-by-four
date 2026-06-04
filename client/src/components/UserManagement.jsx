@@ -67,6 +67,26 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
+  // ── Assign / change leave approver ──────────────────────────────────────
+  const editApprover = async (uid) => {
+    const current = users[uid]?.approver || '';
+    const list = Object.values(users)
+      .filter(u => u.id !== uid && (u.role === 'admin' || u.role === 'superadmin'))
+      .map(u => `${u.id} — ${u.name}`);
+    const ap = prompt(
+      'Leave / visit approver for ' + (users[uid]?.name || uid) + ' — type the user id (blank = any admin can approve):\n\nAvailable:\n' + list.join('\n'),
+      current,
+    );
+    if(ap === null) return;
+    const trimmed = ap.trim();
+    if(trimmed && !users[trimmed]){ flash('error', 'No user with id "' + trimmed + '"'); return; }
+    try {
+      await api.updateUser(uid, { approver: trimmed });
+      setUsers({ ...users, [uid]: { ...users[uid], approver: trimmed } });
+      flash('success', trimmed ? ('Approver set to ' + (users[trimmed]?.name || trimmed)) : 'Approver cleared');
+    } catch(e){ flash('error', 'Update failed: ' + e.message); }
+  };
+
   // ── Remove user ─────────────────────────────────────────────────────────
   const remove = async (uid) => {
     if(uid === currentUser?.id){ flash('error', "Can't delete yourself"); return; }
@@ -189,6 +209,11 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
                   </div>
                   <div style={{fontSize:10, color:'var(--t3)', marginTop:2}}>
                     {u.id} · {u.url ? <span style={{color:'#34d399'}}>Sheet ✓</span> : <span style={{color:'var(--t3)'}}>No sheet</span>}
+                    {u.role === 'salesman' && (
+                      <> · Approver: <span style={{color: u.approver ? '#a5b4fc' : '#fbbf24'}}>
+                        {u.approver ? (users[u.approver]?.name || u.approver) : 'any admin'}
+                      </span></>
+                    )}
                   </div>
                 </div>
 
@@ -212,6 +237,11 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
                     <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>editUrl(u.id)} title="Edit sheet URL">
                       <LinkIcon size={11}/>
                     </button>
+                    {u.role === 'salesman' && (
+                      <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>editApprover(u.id)} title="Set leave / visit approver">
+                        <Shield size={11}/>
+                      </button>
+                    )}
                     {!isSelf && (
                       <button className="btnd" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>remove(u.id)} title="Remove user">
                         <Trash2 size={11}/>

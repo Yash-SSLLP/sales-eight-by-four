@@ -13,5 +13,8 @@ const S = new mongoose.Schema({
   url:             { type:String, default:null },
   url2:            { type:String, default:null },
   url_outstanding: { type:String, default:null },
+  // CRM: id of the user (manager / admin) who reviews this salesman's leaves
+  // and visits. Empty = any admin/superadmin can approve.
+  approver:        { type:String, default:'' },
 }, { timestamps:true });
 export default mongoose.models.User || mongoose.model('User', S);

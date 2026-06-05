@@ -15526,6 +15526,22 @@ export default function App(){
     return ()=>document.removeEventListener('mousedown', onDoc);
   },[paletteOpen]);
 
+  // ── Refresh user roster from server. Called on boot AND after any
+  //     user mutation (create / delete / role change / approver change) so
+  //     newly added users show up everywhere — sidebar, login dropdown,
+  //     login-as picker, lead assignee picker — without a full reload.
+  const refreshUsersFromServer = useCallback(async () => {
+    try {
+      const fresh = await api.getUsers();
+      if(fresh && typeof fresh === 'object'){
+        setUsers(fresh);              // overwrite local cache with authoritative server data
+        storage.set('users', fresh);  // also persist so we have it offline next boot
+      }
+    } catch(e){
+      console.warn('[refreshUsersFromServer]', e?.message);
+    }
+  }, []);
+
   // ── Boot: load storage + restore cookie session ──────────
   useEffect(()=>{
     (async()=>{
@@ -15534,6 +15550,11 @@ export default function App(){
         storage.get('notes',[]),storage.get('activityLog',[]),storage.get('theme','dark')
       ]);
       if(u)setUsers(u); if(d)setDealers(d); if(n)setNotes(n); if(l)setActivityLog(l); if(t)setTheme(t);
+
+      // Fire-and-forget: get the live user list from the server. /api/auth/users
+      // is public so this works even before login. If it succeeds it overwrites
+      // the local cache so the LoginPage dropdown always shows the newest users.
+      refreshUsersFromServer();
 
       // ── Session restore ────────────────────────────────────────────
       // CRITICAL: if we're currently impersonating (stp_impersonating set),
@@ -16570,6 +16591,7 @@ export default function App(){
           users={users}
           setUsers={setUsers}
           currentUser={currentUser}
+          onUsersChanged={refreshUsersFromServer}
           onClose={()=>setShowUM(false)}
           onLoginAs={(token, user, impersonatedBy)=>{
             // Switch the active session to the target user. Store an

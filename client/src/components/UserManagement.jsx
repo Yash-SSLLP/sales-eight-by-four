@@ -6,7 +6,7 @@ import { notify, confirmDialog } from './Toast';
 
 // Note: `setUsers` updates the client-side users map; `onLoginAs(token, user, impersonatedBy?)`
 // is used by the superadmin "Login as" feature to swap the active JWT.
-const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) => {
+const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUsersChanged }) => {
   const [name,    setName]    = useState('');
   const [id,      setId]      = useState('');
   const [pass,    setPass]    = useState('');
@@ -37,8 +37,11 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     try {
       const ini = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
       const newUser = await api.createUser({ id: idC, name, pass, role, color, ini });
-      // Update local users map so UI refreshes
+      // Optimistically update local cache for instant feedback…
       setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null } });
+      // …then trigger a server-side refresh so the new user appears with all
+      // server-side fields and persists across page reloads + other devices.
+      onUsersChanged?.();
       setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman');
       flash('success', 'Created ' + name + ' (' + idC + '). Password: ' + pass);
     } catch(e){
@@ -53,6 +56,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     try {
       await api.updateUser(uid, { pass: np });
       setUsers({ ...users, [uid]: { ...users[uid], pass: np } });
+      onUsersChanged?.();
       flash('success', 'Password updated for ' + users[uid]?.name);
     } catch(e){ flash('error', 'Reset failed: ' + e.message); }
   };
@@ -63,6 +67,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     try {
       await api.updateUser(uid, { url: np.trim() || null });
       setUsers({ ...users, [uid]: { ...users[uid], url: np.trim() || null } });
+      onUsersChanged?.();
       flash('success', 'Sheet URL updated');
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
@@ -83,6 +88,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     try {
       await api.updateUser(uid, { approver: trimmed });
       setUsers({ ...users, [uid]: { ...users[uid], approver: trimmed } });
+      onUsersChanged?.();
       flash('success', trimmed ? ('Approver set to ' + (users[trimmed]?.name || trimmed)) : 'Approver cleared');
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
@@ -95,6 +101,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs }) =>
     try {
       await api.deleteUser(uid);
       const u = { ...users }; delete u[uid]; setUsers(u);
+      onUsersChanged?.();
       flash('success', 'Removed ' + uid);
     } catch(e){ flash('error', 'Delete failed: ' + e.message); }
   };

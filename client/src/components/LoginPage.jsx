@@ -164,10 +164,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Sun, Moon, Server, WifiOff, Settings } from 'lucide-react';
-import { getApiBase } from '../api';
+import { getApiBase, api } from '../api';
 import ApiUrlSettings from './ApiUrlSettings';
 
-export default function LoginPage({users,onLogin,theme,toggleTheme}){
+export default function LoginPage({users:propUsers,onLogin,theme,toggleTheme}){
+  // Start with whatever was in the parent's local cache, then merge in fresh
+  // server data once the connectivity check succeeds. This ensures users that
+  // were created on another device (or by an admin after the local cache was
+  // last written) show up in the dropdown.
+  const [users, setLocalUsers] = useState(propUsers || {});
+  useEffect(()=>{ setLocalUsers(propUsers || {}); }, [propUsers]);
+
   const [uid_,setUid]=useState('');
   const [pw,setPw]=useState('');
   const [showPw,setShowPw]=useState(false);
@@ -199,6 +206,25 @@ export default function LoginPage({users,onLogin,theme,toggleTheme}){
     })();
     return ()=>{ cancelled = true; };
   },[]);
+
+  // Once the server check passes, pull the live user list so newly-created
+  // accounts appear in the dropdown immediately (no reinstall, no refresh).
+  useEffect(()=>{
+    if(serverOk !== true) return;
+    let cancelled = false;
+    (async()=>{
+      try {
+        const fresh = await api.getUsers();   // returns { id: user, ... } map
+        if(!cancelled && fresh && typeof fresh === 'object'){
+          setLocalUsers(prev => ({ ...prev, ...fresh }));
+        }
+      } catch(e){
+        // Server is up but call failed — keep the local cache, no UI noise.
+        console.warn('[LoginPage] getUsers failed:', e?.message);
+      }
+    })();
+    return ()=>{ cancelled = true; };
+  }, [serverOk]);
 
   const submit = async () => {
     if(!uid_||!pw){ setErr('Choose user and enter password'); return; }

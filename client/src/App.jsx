@@ -16200,14 +16200,42 @@ export default function App(){
                   <ChevronDown size={11} style={{transform:loginAsOpen?'rotate(180deg)':'rotate(0)', transition:'transform .15s'}}/>
                 </button>
                 {loginAsOpen && (
-                  <div style={{
-                    position:'fixed', top:loginAsPos.top, right:loginAsPos.right, zIndex:9999,
-                    background:'var(--bg2)', border:'1px solid var(--b2)',
-                    borderRadius:8, minWidth:240, maxHeight:380, overflowY:'auto',
-                    boxShadow:'0 10px 30px rgba(0,0,0,0.45)', padding:6,
-                  }}>
-                    <div style={{fontSize:9, color:'var(--t3)', letterSpacing:'.12em', textTransform:'uppercase', padding:'6px 10px 4px'}}>
-                      Pick a user
+                  <>
+                    {/* Mobile backdrop — full-screen dim + tap-to-close.
+                        On desktop the small popover is enough; this gives
+                        phones a clear way to dismiss. */}
+                    <div
+                      onClick={()=>setLoginAsOpen(false)}
+                      style={{
+                        position:'fixed', inset:0, zIndex:9998,
+                        background:'rgba(0,0,0,0.55)',
+                      }}/>
+                    <div style={(()=>{
+                      const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
+                      return isMobile ? {
+                        // Full-width bottom-sheet style on phones
+                        position:'fixed', left:8, right:8, bottom:8, zIndex:9999,
+                        background:'var(--bg2)', border:'1px solid var(--b2)',
+                        borderRadius:12, maxHeight:'70vh', overflowY:'auto',
+                        boxShadow:'0 -10px 30px rgba(0,0,0,0.55)', padding:8,
+                      } : {
+                        position:'fixed', top:loginAsPos.top, right:loginAsPos.right, zIndex:9999,
+                        background:'var(--bg2)', border:'1px solid var(--b2)',
+                        borderRadius:8, minWidth:260, maxHeight:380, overflowY:'auto',
+                        boxShadow:'0 10px 30px rgba(0,0,0,0.45)', padding:6,
+                      };
+                    })()}>
+                    <div style={{
+                      display:'flex', alignItems:'center', justifyContent:'space-between',
+                      padding:'8px 10px 6px',
+                    }}>
+                      <div style={{fontSize:10, color:'var(--t3)', letterSpacing:'.12em', textTransform:'uppercase'}}>
+                        Pick a user
+                      </div>
+                      <button onClick={()=>setLoginAsOpen(false)}
+                        style={{background:'none', border:'none', color:'var(--t3)', cursor:'pointer', padding:4}}>
+                        ✕
+                      </button>
                     </div>
                     {loginAsErr && (
                       <div style={{
@@ -16231,31 +16259,38 @@ export default function App(){
                         const roleColor = isSA ? '#fbbf24' : isAd ? '#a5b4fc' : '#86efac';
                         return (
                           <div key={u.id}
-                            onClick={()=>doLoginAs(u.id, u.name)}
+                            onClick={()=>!loginAsBusy && doLoginAs(u.id, u.name)}
                             style={{
-                              display:'flex', alignItems:'center', gap:8,
-                              padding:'8px 10px', borderRadius:6,
+                              display:'flex', alignItems:'center', gap:10,
+                              padding:'12px 12px', borderRadius:8,
                               cursor: loginAsBusy?'wait':'pointer',
                               opacity: loginAsBusy?0.6:1,
-                            }}
-                            onMouseEnter={e=>e.currentTarget.style.background='var(--bg1)'}
-                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                            <Avatar user={u} size={26}/>
+                              background:'var(--bg1)', marginBottom:6,
+                            }}>
+                            <Avatar user={u} size={32}/>
                             <div style={{flex:1, minWidth:0}}>
-                              <div style={{fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:6}}>
+                              <div style={{fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:6}}>
                                 <span style={{whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{u.name}</span>
-                                {RoleIcon && <RoleIcon size={10} style={{color:roleColor, flexShrink:0}}/>}
+                                {RoleIcon && <RoleIcon size={11} style={{color:roleColor, flexShrink:0}}/>}
                               </div>
                               <div style={{fontSize:10, color:'var(--t3)'}}>{u.id} · <span style={{color:roleColor}}>{u.role}</span></div>
                             </div>
-                            <LogIn size={12} style={{color:'#fbbf24', flexShrink:0}}/>
+                            <div style={{
+                              display:'inline-flex', alignItems:'center', gap:4,
+                              fontSize:10, fontWeight:700, padding:'5px 9px', borderRadius:6,
+                              background:'rgba(251,191,36,0.15)', color:'#fbbf24',
+                              border:'1px solid rgba(251,191,36,0.35)',
+                            }}>
+                              <LogIn size={11}/> Login
+                            </div>
                           </div>
                         );
                       })}
                     {Object.values(users||{}).filter(u=>u.id!==currentUser?.id).length === 0 && (
                       <div style={{fontSize:11, color:'var(--t3)', padding:'10px'}}>No other users yet.</div>
                     )}
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -16468,6 +16503,27 @@ export default function App(){
                     </div>);
                   })}
                 </div>
+              </div>
+              {/* ── Sidebar bottom: user identity + Sign out ─────────── */}
+              <div style={{
+                padding:'10px 12px', borderTop:'1px solid var(--b1)',
+                display:'flex', alignItems:'center', gap:10,
+              }}>
+                <Avatar user={currentUser} size={30}/>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontSize:12, fontWeight:600, color:'var(--t1)', lineHeight:1.1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{currentUser.name}</div>
+                  <div style={{fontSize:10, color:'var(--t3)'}}>{currentUser.role==='superadmin'?'Superadmin':currentUser.role==='admin'?'Admin':'Sales'}</div>
+                </div>
+                <button onClick={handleLogout} className="btn"
+                  title="Sign out"
+                  style={{
+                    padding:'6px 10px', fontSize:11, color:'#fca5a5',
+                    border:'1px solid rgba(248,113,113,0.35)',
+                    background:'rgba(248,113,113,0.08)',
+                    display:'inline-flex', alignItems:'center', gap:4,
+                  }}>
+                  <LogOut size={12}/> Sign out
+                </button>
               </div>
             </div>
 

@@ -17,6 +17,9 @@
     },
     "Geolocation": {
       "permissions": ["location"]
+    },
+    "SpeechRecognition": {
+      "permissions": ["microphone"]
     }
   }
 }

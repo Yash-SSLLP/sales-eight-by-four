@@ -17,7 +17,11 @@ import { Mic, Square } from 'lucide-react';
 const SR = typeof window !== 'undefined'
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
   : null;
-const SUPPORTED = !!SR;
+const IS_NATIVE = !!(typeof window !== 'undefined' && window.Capacitor?.isNativePlatform && window.Capacitor.isNativePlatform());
+// On native (APK) we use the Capacitor plugin which goes through the device's
+// built-in speech engine (Google Speech / vendor). On web we use the standard
+// SpeechRecognition API.
+const SUPPORTED = !!SR || IS_NATIVE;
 
 // Persist the chosen language in localStorage so the user only picks it once.
 const LANG_KEY = 'stp_voice_lang';
@@ -36,7 +40,8 @@ const LANGUAGES = [
 ];
 
 function useVoice({ lang, onResult }){
-  const recRef = useRef(null);
+  const recRef = useRef(null);              // web SpeechRecognition instance
+  const nativeListenerRef = useRef(null);   // capacitor plugin listener handle
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,8 +49,74 @@ function useVoice({ lang, onResult }){
   const onResultRef = useRef(onResult);
   useEffect(()=>{ onResultRef.current = onResult; }, [onResult]);
 
-  const start = () => {
-    if(!SR){ setError('Speech recognition not supported in this browser'); return; }
+  // ── Native (Capacitor APK) path ──────────────────────────────────────
+  const startNative = async () => {
+    try {
+      const mod = await import('@capacitor-community/speech-recognition');
+      const SR_PLUGIN = mod.SpeechRecognition;
+      // Permission flow — popup once, then granted
+      try { await SR_PLUGIN.requestPermissions(); } catch{}
+      const { available } = await SR_PLUGIN.available();
+      if(!available){
+        setError('Speech recognition not available on this device');
+        return false;
+      }
+      // Cleanup any previous listener
+      try { await SR_PLUGIN.removeAllListeners(); } catch{}
+      // Both partial and final results route here; the plugin gives the LAST
+      // match for partial chunks, and the user-friendly "best" for the final.
+      // We append only when the segment finalises by tracking a known marker.
+      let lastFinal = '';
+      const handle = await SR_PLUGIN.addListener('partialResults', (data) => {
+        const matches = data?.matches || [];
+        if(matches.length){
+          // Replace last partial with the new best guess (no double-append)
+          const text = matches[0] || '';
+          // We can't easily distinguish partial vs final on Android — instead
+          // wait for the listener to stop and finalize then. We DO commit if
+          // text grew significantly between callbacks.
+          if(text && text !== lastFinal){
+            lastFinal = text;
+          }
+        }
+      });
+      nativeListenerRef.current = { handle, getFinal:()=>lastFinal };
+      await SR_PLUGIN.start({
+        language: lang || 'en-IN',
+        maxResults: 1,
+        prompt: '',
+        partialResults: true,
+        popup: false,
+      });
+      setRecording(true);
+      setError('');
+      return true;
+    } catch(e){
+      setError(e?.message || 'mic error');
+      setRecording(false);
+      return false;
+    }
+  };
+  const stopNative = async () => {
+    try {
+      const mod = await import('@capacitor-community/speech-recognition');
+      const SR_PLUGIN = mod.SpeechRecognition;
+      await SR_PLUGIN.stop();
+      // Commit whatever we captured
+      const text = nativeListenerRef.current?.getFinal?.() || '';
+      if(text && onResultRef.current) onResultRef.current(text);
+      try { await SR_PLUGIN.removeAllListeners(); } catch{}
+    } catch(e){
+      // ignored — best-effort stop
+    } finally {
+      nativeListenerRef.current = null;
+      setRecording(false);
+    }
+  };
+
+  // ── Web (browser) path ───────────────────────────────────────────────
+  const startWeb = () => {
+    if(!SR){ setError('Speech recognition not supported in this browser'); return false; }
     if(recRef.current){ try{ recRef.current.stop(); }catch{} }
     const rec = new SR();
     rec.lang = lang || 'en-IN';
@@ -59,26 +130,29 @@ function useVoice({ lang, onResult }){
       }
       if(txt && onResultRef.current) onResultRef.current(txt.trim());
     };
-    rec.onerror = (e) => {
-      setError(e.error || 'mic error');
-      setRecording(false);
-    };
+    rec.onerror = (e) => { setError(e.error || 'mic error'); setRecording(false); };
     rec.onend = () => setRecording(false);
     try {
       rec.start();
       recRef.current = rec;
       setRecording(true);
       setError('');
-    } catch(e){
-      setError(e.message);
-    }
+      return true;
+    } catch(e){ setError(e.message); return false; }
   };
-  const stop = () => {
+  const stopWeb = () => {
     if(recRef.current){ try{ recRef.current.stop(); }catch{} }
     setRecording(false);
   };
+
+  const start = () => IS_NATIVE ? startNative() : startWeb();
+  const stop  = () => IS_NATIVE ? stopNative()  : stopWeb();
+
   // Stop on unmount
-  useEffect(()=>()=>{ try{ recRef.current?.stop(); }catch{} }, []);
+  useEffect(()=>()=>{
+    try{ recRef.current?.stop(); }catch{}
+    if(IS_NATIVE){ stopNative().catch(()=>{}); }
+  }, []);
   return { recording, error, start, stop };
 }
 

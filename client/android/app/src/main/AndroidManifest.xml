@@ -40,6 +40,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- CRM Voice-to-text (notes / discussion comments) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- CRM Camera (selfie attendance + visit photos) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

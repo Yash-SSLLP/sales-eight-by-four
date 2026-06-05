@@ -207,15 +207,17 @@ function VoiceField({ as='textarea', value, onChange, placeholder='', className=
             )}
           </div>
 
-          {/* The mic / stop pill — clearly button-shaped, decent tap area */}
+          {/* Icon-only mic button. While recording shows the animated bars;
+              while idle shows just the mic icon. No label text. */}
           <button type="button"
             onClick={onMicClick}
             title={recording ? 'Tap to stop recording' : 'Tap and speak'}
+            aria-label={recording ? 'Stop recording' : 'Start voice input'}
             style={{
-              display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6,
-              padding: as === 'input' ? '6px 12px' : '8px 14px',
-              borderRadius:999,
-              fontSize:12, fontWeight:700,
+              width: 36, height: 36,
+              display:'inline-flex', alignItems:'center', justifyContent:'center',
+              borderRadius: '50%',
+              padding: 0,
               cursor:'pointer',
               transition:'all .15s',
               background: recording ? '#dc2626' : 'var(--acc)',
@@ -223,11 +225,8 @@ function VoiceField({ as='textarea', value, onChange, placeholder='', className=
               border: '1px solid ' + (recording ? '#b91c1c' : 'transparent'),
               boxShadow: recording ? '0 0 0 0 rgba(220,38,38,0.55)' : '0 2px 8px rgba(0,0,0,0.25)',
               animation: recording ? 'stpVoicePulse 1.4s ease-out infinite' : 'none',
-              minHeight: 34,
             }}>
-            {recording
-              ? (<><WaveBars/> <span>Stop</span></>)
-              : (<><Mic size={14}/> <span>Speak</span></>)}
+            {recording ? <WaveBars/> : <Mic size={16}/>}
           </button>
         </div>
       )}

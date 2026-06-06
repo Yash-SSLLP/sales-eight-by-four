@@ -1,21 +1,13 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { protect } from '../middleware/auth.js';
+// IMPORTANT: import the canonical schema from models/Outstandingfollowup.js
+// so new fields like `paymentProof`, `collectedAt`, `collectedAmount` are
+// recognised by Mongoose. Declaring the schema inline here used to cause it
+// to silently strip unknown fields on update.
+import OutstandingFollowup from '../models/Outstandingfollowup.js';
 
 const router = express.Router();
-
-const followupSchema = new mongoose.Schema({
-  dealerName:  { type:String, required:true },
-  salesman:    { type:String, default:'' },
-  amount:      { type:Number, default:0 },
-  followupDate:{ type:String, required:true },
-  comment:     { type:String, default:'' },
-  status:      { type:String, enum:['pending','done','overdue'], default:'pending' },
-  type:        { type:String, default:'followup' },
-  createdBy:   { type:String, default:'' },
-}, { timestamps:true });
-
-const OutstandingFollowup = mongoose.models.OutstandingFollowup || mongoose.model('OutstandingFollowup', followupSchema);
 
 // Staff = admin OR superadmin (both see all follow-ups)
 const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';

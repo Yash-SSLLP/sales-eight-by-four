@@ -257,7 +257,17 @@ export default function LoginPage({users:propUsers,onLogin,theme,toggleTheme}){
     onLogin(u, null, pw);
   };
 
-  const sms=Object.values(users).filter(x=>x.role==='salesman');
+  // Every user shows up in the login picker, ordered by role (superadmin →
+  // admin → salesman) then alphabetical. New accounts of ANY role appear
+  // immediately after a server refresh.
+  const allLoginUsers = Object.values(users || {})
+    .filter(x => x && x.id && x.name)
+    .sort((a,b) => {
+      const order = { superadmin: 0, admin: 1, salesman: 2 };
+      const r = (order[a.role] ?? 9) - (order[b.role] ?? 9);
+      if(r !== 0) return r;
+      return (a.name || '').localeCompare(b.name || '');
+    });
 
   return(
     <div style={{height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',position:'relative',overflow:'hidden'}}>
@@ -292,8 +302,38 @@ export default function LoginPage({users:propUsers,onLogin,theme,toggleTheme}){
             <label>User</label>
             <select className="sel inp" style={{padding:'10px 12px'}} value={uid_} onChange={e=>{setUid(e.target.value);setErr('');}}>
               <option value="">Choose...</option>
-              <option value="admin">Admin (all data)</option>
-              {sms.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              {/* Group by role so admins / superadmins are obvious */}
+              {(() => {
+                const groups = { superadmin:[], admin:[], salesman:[], other:[] };
+                allLoginUsers.forEach(u => {
+                  const k = (u.role === 'superadmin' || u.role === 'admin' || u.role === 'salesman') ? u.role : 'other';
+                  groups[k].push(u);
+                });
+                return (
+                  <>
+                    {groups.superadmin.length > 0 && (
+                      <optgroup label="Superadmin">
+                        {groups.superadmin.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </optgroup>
+                    )}
+                    {groups.admin.length > 0 && (
+                      <optgroup label="Admin">
+                        {groups.admin.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </optgroup>
+                    )}
+                    {groups.salesman.length > 0 && (
+                      <optgroup label="Salesmen">
+                        {groups.salesman.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </optgroup>
+                    )}
+                    {groups.other.length > 0 && (
+                      <optgroup label="Other">
+                        {groups.other.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </optgroup>
+                    )}
+                  </>
+                );
+              })()}
             </select>
           </div>
           <div className="field">

@@ -115,23 +115,30 @@ function useVoice({ lang, onResult }){
     }
   };
   const stopNative = async () => {
+    // 1) Flip UI to "not recording" IMMEDIATELY so the button changes back
+    //    even if the native plugin is slow / unresponsive. This is what the
+    //    user notices first — tap, button flips, mic icon returns.
+    setRecording(false);
     const refSnap = nativeListenerRef.current;
-    try {
-      const SR_PLUGIN = refSnap?.SR_PLUGIN || (await import('@capacitor-community/speech-recognition')).SpeechRecognition;
-      // Best-effort: ask the plugin to stop. Some Android versions throw if
-      // listening already ended — ignore that.
-      try { await SR_PLUGIN.stop(); } catch{}
-      // Commit any captured text right away (don't wait for listeningState)
-      const text = lastTextRef.current?.trim();
-      if(text && onResultRef.current) onResultRef.current(text);
-      lastTextRef.current = '';
-      try { await SR_PLUGIN.removeAllListeners(); } catch{}
-    } catch(e){
-      // ignored — best-effort stop
-    } finally {
-      nativeListenerRef.current = null;
-      setRecording(false);
-    }
+    nativeListenerRef.current = null;
+
+    // 2) Commit any captured partial RIGHT AWAY so the text shows up before
+    //    we even bother to fully stop the plugin.
+    const text = lastTextRef.current?.trim();
+    lastTextRef.current = '';
+    if(text && onResultRef.current) onResultRef.current(text);
+
+    // 3) Fire-and-forget the native stop + listener cleanup. We don't await
+    //    here because Android's SR.stop() sometimes hangs for several
+    //    seconds before returning; the user already sees the UI updated.
+    (async () => {
+      try {
+        const SR_PLUGIN = refSnap?.SR_PLUGIN
+          || (await import('@capacitor-community/speech-recognition')).SpeechRecognition;
+        try { await SR_PLUGIN.stop(); } catch{}
+        try { await SR_PLUGIN.removeAllListeners(); } catch{}
+      } catch{}
+    })();
   };
 
   // ── Web (browser) path ───────────────────────────────────────────────
@@ -227,9 +234,14 @@ function VoiceField({ as='textarea', value, onChange, placeholder='', className=
   };
   const { recording, error, start, stop } = useVoice({ lang, onResult: appendTranscript });
 
-  const onMicClick = () => {
-    if(recording) stop();
-    else start();
+  const onMicClick = async () => {
+    try {
+      if(recording) await stop();
+      else await start();
+    } catch(e){
+      // Never leave the user stuck — last-resort recovery.
+      console.warn('[VoiceInput onMicClick]', e?.message || e);
+    }
   };
   const pickLang = (code) => {
     setLang(code);

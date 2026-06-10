@@ -68,6 +68,8 @@ export default function ManageMonths({
   const currentIdx = monthConfig?.currentIdx ?? 0;
   // Admin or superadmin both get full access
   const isAdmin    = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
+  // Only superadmin can see / use the irreversible "Wipe All" button.
+  const isSuperAdmin = currentUser?.role === 'superadmin';
 
   const [newMonth, setNewMonth]     = useState('');
   const [busy, setBusy]             = useState(false);
@@ -526,33 +528,38 @@ export default function ManageMonths({
         })}
       </div>
 
-      {/* ── DANGER ZONE: Start Fresh ────────────────────────────────────── */}
-      <div className="card" style={{
-        padding:14, marginBottom:14,
-        background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.3)',
-      }}>
-        <div style={{display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
-          <span style={{fontSize:16}}>⚠️</span>
-          <div style={{flex:1, minWidth:200}}>
-            <div style={{fontSize:13, fontWeight:700, color:'#fca5a5', marginBottom:3}}>Start Fresh — Wipe all dealer data</div>
-            <div style={{fontSize:11, color:'var(--t3)'}}>
-              Deletes every dealer record from MongoDB. After wiping you'll have a clean DB. You can re-populate it by clicking <b>Sync now</b> (re-loads from Google Sheets) or by uploading Excel files via <b>Monthly Entry</b>. Once data is in DB, refreshes and uploads will work cleanly.
+      {/* ── DANGER ZONE: Start Fresh — SUPERADMIN ONLY ─────────────────── */}
+      {isSuperAdmin && (
+        <div className="card" style={{
+          padding:14, marginBottom:14,
+          background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.3)',
+        }}>
+          <div style={{display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+            <span style={{fontSize:16}}>⚠️</span>
+            <div style={{flex:1, minWidth:200}}>
+              <div style={{fontSize:13, fontWeight:700, color:'#fca5a5', marginBottom:3}}>
+                Start Fresh — Wipe all dealer data
+                <span style={{fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:3, background:'rgba(251,191,36,0.15)', color:'#fbbf24', marginLeft:8, letterSpacing:'.06em'}}>SUPERADMIN ONLY</span>
+              </div>
+              <div style={{fontSize:11, color:'var(--t3)'}}>
+                Deletes every dealer record from MongoDB. After wiping you'll have a clean DB. You can re-populate it by clicking <b>Sync now</b> (re-loads from Google Sheets) or by uploading Excel files via <b>Monthly Entry</b>. Once data is in DB, refreshes and uploads will work cleanly.
+              </div>
             </div>
+            <button onClick={handleWipeAll} disabled={busy}
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                background:'transparent', color:'#fca5a5',
+                border:'1px solid #f87171', borderRadius:6,
+                padding:'8px 14px', fontSize:12, fontWeight:700,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                whiteSpace:'nowrap',
+              }}>
+              <Trash2 size={14}/>
+              Wipe All Data
+            </button>
           </div>
-          <button onClick={handleWipeAll} disabled={busy}
-            style={{
-              display:'flex', alignItems:'center', gap:6,
-              background:'transparent', color:'#fca5a5',
-              border:'1px solid #f87171', borderRadius:6,
-              padding:'8px 14px', fontSize:12, fontWeight:700,
-              cursor: busy ? 'not-allowed' : 'pointer',
-              whiteSpace:'nowrap',
-            }}>
-            <Trash2 size={14}/>
-            Wipe All Data
-          </button>
         </div>
-      </div>
+      )}
 
       {/* ── Add month + Sync row ────────────────────────────────────────── */}
       <div style={{display:'grid', gridTemplateColumns:'2fr 1fr', gap:10, marginBottom:14}}>

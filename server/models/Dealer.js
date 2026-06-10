@@ -75,6 +75,12 @@ const dealerSchema = new mongoose.Schema({
   // Per-month data — fully independent per month
   monthlyData:  { type:Map, of:monthEntrySchema, default:{} },
   source:       { type:String, default:'sheet' },
+  // Auto-learned GPS (set on first CRM visit check-in with valid lat/lng).
+  // Used by Visits page to suggest nearby dealers.
+  locLat:       { type:Number, default:null },
+  locLng:       { type:Number, default:null },
+  locUpdatedAt: { type:Date,   default:null },
+  locAccuracy:  { type:Number, default:null },
 }, { timestamps:true });
 
 dealerSchema.index({ name:1, salesman:1 }, { unique:true });

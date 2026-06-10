@@ -3,6 +3,7 @@
 // otherwise stateless (no multer / no S3) — keeps the deployment simple.
 
 import express from 'express';
+import mongoose from 'mongoose';
 import multer  from 'multer';
 import XLSX    from 'xlsx';
 import Attendance from '../models/Attendance.js';
@@ -114,6 +115,36 @@ router.post('/visits', protect, async (req, res) => {
       comment:  note,
       dateStr:  todayStr(),
     });
+
+    // ── AUTO-LEARN the dealer's GPS ─────────────────────────────────────
+    // When a salesperson checks in to a dealer with a working GPS fix, stamp
+    // that location onto the dealer record so future visits can power
+    // "nearby dealer" suggestions. Only update if:
+    //   * we have a real dealerId match (not a free-text party)
+    //   * we have lat/lng
+    //   * the dealer doesn't already have a location, OR the new fix looks
+    //     significantly better (more accurate, or the existing one is old)
+    if(dealerId && typeof lat === 'number' && typeof lng === 'number'){
+      try {
+        const Dealer = mongoose.models.Dealer;
+        if(Dealer){
+          const dealer = await Dealer.findById(dealerId);
+          if(dealer){
+            const stale = !dealer.locLat || !dealer.locLng;
+            if(stale){
+              dealer.locLat = lat;
+              dealer.locLng = lng;
+              dealer.locUpdatedAt = new Date();
+              await dealer.save();
+              console.log('[VISIT] stamped GPS on dealer ' + dealer.name + ' (' + lat + ',' + lng + ')');
+            }
+          }
+        }
+      } catch(err){
+        console.warn('[VISIT] dealer GPS stamp failed:', err.message);
+      }
+    }
+
     res.json(doc);
   } catch(e){ console.error('[CRM/visits POST]', e.message); res.status(500).json({ error:e.message }); }
 });

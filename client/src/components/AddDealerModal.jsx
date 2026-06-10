@@ -5,7 +5,7 @@ import { useMonth } from '../context';
 import { api } from '../api';
 
 const ZONES    = ['ZONE 1','ZONE 2','ZONE 3','ZONE 4','ZONE 5'];
-const STATUSES = ['ACTIVE','STAR','ACHIVERS','KEY ACCOUNT','RECENTLY INACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
+const STATUSES = ['ACTIVE','STAR','ACHIVERS','KEY ACCOUNT','REACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
 
 const Field = ({label,children,full}) => (
   <div className={`field${full?' full':''}`}>

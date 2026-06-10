@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import XLSX from 'xlsx';
 import mongoose from 'mongoose';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, superAdminOnly } from '../middleware/auth.js';
 
 const router = express.Router();
 const upload = multer({ storage:multer.memoryStorage(), limits:{ fileSize:10*1024*1024 } });
@@ -33,6 +33,13 @@ const dealerSchema = new mongoose.Schema({
   avg6m:        { type:Number, default:0 },
   monthlyData:  { type:Map, of:monthEntrySchema, default:{} },
   source:       { type:String, default:'sheet' },
+  // Auto-learned GPS location of the dealer's physical site. Set the first
+  // time a salesperson successfully checks in with GPS at this dealer; used
+  // afterwards to power "nearby dealer" suggestions on the Visits page.
+  locLat:       { type:Number, default:null },
+  locLng:       { type:Number, default:null },
+  locUpdatedAt: { type:Date,   default:null },
+  locAccuracy:  { type:Number, default:null },
 }, { timestamps:true });
 
 dealerSchema.index({ name:1, salesman:1 }, { unique:true });
@@ -63,6 +70,10 @@ const fmt = (d, MO=[]) => {
     monthsWithData, monthlyData:md,
     achieved:[...months].reverse().find(v=>v>0)||0,
     categoryBreakdown:{}, source:d.source||'db',
+    // Auto-learned GPS for nearby-dealer suggestions on the Visits page
+    locLat:d.locLat ?? null,
+    locLng:d.locLng ?? null,
+    locUpdatedAt:d.locUpdatedAt || null,
   };
 };
 
@@ -311,10 +322,11 @@ router.delete('/month/:label', protect, adminOnly, async (req, res) => {
   }
 });
 
-// ── POST /api/dealers/wipe-all — admin only (DESTRUCTIVE) ──────────────────
-// Deletes ALL dealer records. Use to start fresh. Requires explicit confirm
-// in the request body to prevent accidents. Returns the number deleted.
-router.post('/wipe-all', protect, adminOnly, async (req, res) => {
+// ── POST /api/dealers/wipe-all — SUPERADMIN ONLY (DESTRUCTIVE) ─────────────
+// Deletes ALL dealer records. Use to start fresh. Locked to superadmin only
+// — a regular admin can't trigger this even via direct API call. Requires
+// explicit confirm in the request body to prevent accidents.
+router.post('/wipe-all', protect, superAdminOnly, async (req, res) => {
   try {
     if(req.body?.confirm !== 'YES_WIPE_ALL'){
       return res.status(400).json({
@@ -339,6 +351,44 @@ router.post('/wipe-all', protect, adminOnly, async (req, res) => {
 // global-target fallback that was getting corrupted by monthly uploads).
 //
 // Returns: { dealersScanned, monthsBackfilled, sample[] }
+// POST /api/dealers/rename-recently-inactive — admin tool. Replaces every
+// dealer status equal to "RECENTLY INACTIVE" (and minor variants) with
+// "REACTIVE", both on the top-level status field and inside monthlyData.
+router.post('/rename-recently-inactive', protect, adminOnly, async (req, res) => {
+  try {
+    const variants = ['RECENTLY INACTIVE','Recently Inactive','recently inactive','RECENTLY_INACTIVE'];
+    const top = await Dealer.updateMany(
+      { status: { $in: variants } },
+      { $set: { status: 'REACTIVE' } },
+    );
+    // Walk monthlyData inside each dealer that still has the old value
+    const cursor = Dealer.find({ 'monthlyData': { $exists: true } }).cursor();
+    let monthsTouched = 0, dealersTouched = 0;
+    for await (const d of cursor){
+      if(!d.monthlyData) continue;
+      let changed = false;
+      for(const [key, val] of d.monthlyData.entries()){
+        if(val && variants.includes(val.status)){
+          val.status = 'REACTIVE';
+          d.monthlyData.set(key, val);
+          changed = true;
+          monthsTouched++;
+        }
+      }
+      if(changed){ d.markModified('monthlyData'); await d.save(); dealersTouched++; }
+    }
+    res.json({
+      ok:true,
+      topLevelUpdated: top.modifiedCount,
+      monthlyDataDealersUpdated: dealersTouched,
+      monthlyEntriesUpdated: monthsTouched,
+    });
+  } catch(e){
+    console.error('[RENAME]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/repair-targets', protect, adminOnly, async (req, res) => {
   try {
     const all = await Dealer.find({});

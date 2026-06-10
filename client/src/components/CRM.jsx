@@ -510,6 +510,46 @@ export function VisitsPage({ dealers, users, currentUser }){
   // Salesman's own dealer roster — only these names appear in the search.
   const myDealerOptions = useMemo(()=>(dealers||[]).map(d=>d.name).filter(Boolean).slice(0, 1500), [dealers]);
 
+  // ── Nearby-dealer suggestions ─────────────────────────────────────────
+  // Once GPS is captured, pick dealers whose auto-learned location is within
+  // 1km of the user. If none, fall back to dealers in the same reverse-geo
+  // city. Sorted by distance so the closest party appears first.
+  const nearbyDealers = useMemo(() => {
+    if(!ciLoc || ciLoc.lat == null) return [];
+    const myLat = ciLoc.lat, myLng = ciLoc.lng;
+    // Haversine distance (metres) — accurate enough for "is this dealer near me"
+    const distance = (lat1, lng1, lat2, lng2) => {
+      const R = 6371000; // earth radius m
+      const toRad = (x)=>x*Math.PI/180;
+      const dLat = toRad(lat2-lat1);
+      const dLng = toRad(lng2-lng1);
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    };
+    const scored = (dealers||[])
+      .filter(d => typeof d.locLat === 'number' && typeof d.locLng === 'number')
+      .map(d => ({ d, m: distance(myLat, myLng, d.locLat, d.locLng) }))
+      .filter(x => x.m <= 1500) // within 1.5 km
+      .sort((a,b) => a.m - b.m)
+      .slice(0, 6);
+    if(scored.length > 0) return scored;
+    // Fallback: dealers in the same city (no distance available yet)
+    const city = (ciLoc.city || '').toLowerCase().trim();
+    if(!city) return [];
+    return (dealers||[])
+      .filter(d => (d.city || '').toLowerCase().trim() === city)
+      .slice(0, 6)
+      .map(d => ({ d, m: null }));
+  }, [ciLoc, dealers]);
+
+  // Pretty-print a distance in m / km
+  const fmtMeters = (m) => {
+    if(m == null) return '';
+    if(m < 1000) return Math.round(m) + 'm';
+    return (m/1000).toFixed(1) + 'km';
+  };
+
   // Active visit (in-progress) belonging to the current user
   const myActive = items.find(v => v.status === 'in-progress' && v.userId === currentUser.id);
 
@@ -644,13 +684,49 @@ export function VisitsPage({ dealers, users, currentUser }){
             <IconIn size={14}/> Check in to a party
           </div>
           <div style={{display:'flex', flexDirection:'column', gap:8}}>
+            {/* Nearby dealer suggestions — built from GPS once a fix lands.
+                Shows the 6 closest parties (within 1.5km) sorted by distance,
+                or falls back to same-city dealers when no GPS-tagged dealer
+                is near yet. Tap a pill → name fills in instantly. */}
+            {nearbyDealers.length > 0 && (
+              <div style={{
+                background:'var(--bg2)', borderRadius:8, padding:'8px 10px',
+                border:'1px solid var(--b2)',
+              }}>
+                <div style={{fontSize:10, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.1em', marginBottom:6}}>
+                  📍 You're near {nearbyDealers[0].m == null ? '(' + (ciLoc?.city || 'nearby') + ')' : ''}
+                </div>
+                <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+                  {nearbyDealers.map(({d, m}) => (
+                    <button key={d.id}
+                      type="button"
+                      onClick={()=>setCiDealer(d.name)}
+                      title={'Tap to use ' + d.name + (m != null ? ' (' + fmtMeters(m) + ' away)' : '')}
+                      style={{
+                        display:'inline-flex', alignItems:'center', gap:6,
+                        padding:'6px 10px', borderRadius:18,
+                        background: ciDealer === d.name ? 'rgba(52,211,153,0.18)' : 'var(--bg1)',
+                        color:      ciDealer === d.name ? '#34d399' : 'var(--t1)',
+                        border: '1px solid ' + (ciDealer === d.name ? '#15803d' : 'var(--b2)'),
+                        cursor:'pointer', fontSize:11, fontWeight:600,
+                      }}>
+                      <MapPin size={11} style={{flexShrink:0, color: m != null ? '#34d399' : '#a5b4fc'}}/>
+                      <span style={{maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{d.name}</span>
+                      {m != null && (
+                        <span style={{fontSize:9, color:'var(--t3)', fontWeight:500}}>{fmtMeters(m)}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <input className="inp" list="crm-dealer-list" placeholder="Party / Dealer name"
               value={ciDealer} onChange={e=>setCiDealer(e.target.value)}/>
             <datalist id="crm-dealer-list">
               {myDealerOptions.map(n => <option key={n} value={n}/>)}
             </datalist>
-            <VoiceInput placeholder="Quick note (optional) — tap 🎤 to speak"
-              value={ciNote} onChange={setCiNote}/>
+            <VoiceTextarea placeholder="Quick note (optional)"
+              value={ciNote} onChange={setCiNote} rows={3}/>
             <div className="crm-row">
               <PhotoCapture photo={ciPhoto} setPhoto={setCiPhoto} label="Take check-in photo"/>
               <LocationCapture loc={ciLoc} setLoc={setCiLoc}/>

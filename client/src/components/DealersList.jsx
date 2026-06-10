@@ -8,7 +8,7 @@
 // // ── Drag-and-drop Kanban board ────────────────────────────
 // const STATUS_COLORS = {
 //   'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399',
-//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c',
+//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c',
 //   'DEAD':'#f87171','NEW':'#22d3ee','PROSPECT':'#818cf8'
 // };
 // const getStatusColor = s => STATUS_COLORS[(s||'').toUpperCase()] || '#55546a';
@@ -390,7 +390,7 @@
 // // ── Drag-and-drop Kanban board ────────────────────────────
 // const STATUS_COLORS = {
 //   'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399',
-//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c',
+//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c',
 //   'DEAD':'#f87171','NEW':'#22d3ee','PROSPECT':'#818cf8'
 // };
 // const getStatusColor = s => STATUS_COLORS[(s||'').toUpperCase()] || '#55546a';
@@ -777,7 +777,7 @@
 // // ── Drag-and-drop Kanban board ────────────────────────────
 // const STATUS_COLORS = {
 //   'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399',
-//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c',
+//   'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c',
 //   'DEAD':'#f87171','NEW':'#22d3ee','PROSPECT':'#818cf8'
 // };
 // const getStatusColor = s => STATUS_COLORS[(s||'').toUpperCase()] || '#55546a';
@@ -1163,7 +1163,7 @@ import { StatusBadge, Avatar, MiniBars, MultiSelect } from './UI';
 // ── Drag-and-drop Kanban board ────────────────────────────
 const STATUS_COLORS = {
   'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399',
-  'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c',
+  'KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c',
   'DEAD':'#f87171','NEW':'#22d3ee','PROSPECT':'#818cf8'
 };
 const getStatusColor = s => STATUS_COLORS[(s||'').toUpperCase()] || '#55546a';

@@ -6,7 +6,7 @@
 // import { api } from '../api';
 // import { Avatar } from './UI';
 
-// const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','RECENTLY INACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
+// const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','REACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
 
 // export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDealer }) {
 //   const { MO:ctxMO, currentMonthIdx } = useMonth();
@@ -318,7 +318,7 @@
 // import { api } from '../api';
 // import { Avatar } from './UI';
 
-// const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','RECENTLY INACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
+// const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','REACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
 
 // export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDealer }) {
 //   const { MO:ctxMO, currentMonthIdx } = useMonth();
@@ -633,7 +633,7 @@ import { num, pct, spct, pclr, monthTarget } from '../utils';
 import { api } from '../api';
 import { Avatar } from './UI';
 
-const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','RECENTLY INACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
+const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','REACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
 
 export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDealer, onSaved }) {
   const { MO:ctxMO, currentMonthIdx } = useMonth();

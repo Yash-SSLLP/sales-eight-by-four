@@ -247,10 +247,53 @@ const seedUsers = async () => {
   } catch(e) { console.warn('Seed failed:', e.message); }
 };
 
+// ── Migrations that run once on every server boot ─────────────────────────
+// Cheap idempotent renames — only touch documents that still have the old
+// value, so it's safe to run every time. Adding new ones here is fine.
+const runMigrations = async () => {
+  try {
+    const Dealer = (await import('./models/Dealer.js')).default;
+    // Rename status 'RECENTLY INACTIVE' → 'REACTIVE' on existing dealers.
+    const variants = ['RECENTLY INACTIVE','Recently Inactive','recently inactive','RECENTLY_INACTIVE'];
+    const result = await Dealer.updateMany(
+      { status: { $in: variants } },
+      { $set: { status: 'REACTIVE' } },
+    );
+    if(result.modifiedCount > 0){
+      console.log('[MIGRATION] dealer status: ' + result.modifiedCount + ' rows updated RECENTLY INACTIVE → REACTIVE');
+    } else {
+      console.log('[MIGRATION] dealer status: no RECENTLY INACTIVE rows to update');
+    }
+
+    // Also clean monthlyData.<month>.status entries with the old value.
+    // (These live inside a Map<string, schema> so we need a script update.)
+    const cursor = Dealer.find({ 'monthlyData': { $exists: true } }).cursor();
+    let monthFixed = 0;
+    for await (const d of cursor){
+      if(!d.monthlyData) continue;
+      let changed = false;
+      for(const [key, val] of d.monthlyData.entries()){
+        if(val && variants.includes(val.status)){
+          val.status = 'REACTIVE';
+          d.monthlyData.set(key, val);
+          changed = true;
+        }
+      }
+      if(changed){ d.markModified('monthlyData'); await d.save(); monthFixed++; }
+    }
+    if(monthFixed > 0){
+      console.log('[MIGRATION] dealer monthlyData status: ' + monthFixed + ' dealers cleaned');
+    }
+  } catch(e){
+    console.warn('[MIGRATION] runMigrations failed:', e.message);
+  }
+};
+
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     console.log('✅ MongoDB connected');
     await seedUsers();
+    await runMigrations();
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
       console.log(`✅ Server → http://localhost:${PORT}`);

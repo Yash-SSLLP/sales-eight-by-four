@@ -308,7 +308,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -417,7 +417,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -781,7 +781,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -890,7 +890,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -1254,7 +1254,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -1364,7 +1364,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -1770,7 +1770,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -1880,7 +1880,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -2325,7 +2325,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -2435,7 +2435,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -2880,7 +2880,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -2990,7 +2990,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -3473,7 +3473,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -3583,7 +3583,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -4066,7 +4066,7 @@
 // // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // // //   const navItems=[
@@ -4176,7 +4176,7 @@
 // // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -4724,7 +4724,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -4834,7 +4834,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -5371,7 +5371,7 @@
 // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // //   const navItems=[
@@ -5481,7 +5481,7 @@
 // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -5987,7 +5987,7 @@
 // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // //   const navItems=[
@@ -6097,7 +6097,7 @@
 // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -6603,7 +6603,7 @@
 // // //   // All status counts for territory bar (plain derivation, no hook)
 // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // //   const navItems=[
@@ -6713,7 +6713,7 @@
 // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -7224,7 +7224,7 @@
 // //   // All status counts for territory bar (plain derivation, no hook)
 // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // //   const deadCount = allStatuses['DEAD']||0;
 
 // //   const navItems=[
@@ -7334,7 +7334,7 @@
 // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -7855,7 +7855,7 @@
 //   // All status counts for territory bar (plain derivation, no hook)
 //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-//   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+//   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 //   const deadCount = allStatuses['DEAD']||0;
 
 //   const navItems=[
@@ -7965,7 +7965,7 @@
 //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-//                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+//                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -8315,7 +8315,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -8424,7 +8424,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -8788,7 +8788,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -8897,7 +8897,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -9261,7 +9261,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -9371,7 +9371,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -9777,7 +9777,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -9887,7 +9887,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -10332,7 +10332,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -10442,7 +10442,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -10887,7 +10887,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -10997,7 +10997,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -11480,7 +11480,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -11590,7 +11590,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -12073,7 +12073,7 @@
 // // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // // //   const navItems=[
@@ -12183,7 +12183,7 @@
 // // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -12731,7 +12731,7 @@
 // // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // // //   const navItems=[
@@ -12841,7 +12841,7 @@
 // // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -13378,7 +13378,7 @@
 // // // //   // All status counts for territory bar (plain derivation, no hook)
 // // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // // //   const navItems=[
@@ -13488,7 +13488,7 @@
 // // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -13994,7 +13994,7 @@
 // // //   // All status counts for territory bar (plain derivation, no hook)
 // // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// // //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // // //   const deadCount = allStatuses['DEAD']||0;
 
 // // //   const navItems=[
@@ -14104,7 +14104,7 @@
 // // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// // //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -14610,7 +14610,7 @@
 // //   // All status counts for territory bar (plain derivation, no hook)
 // //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 // //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-// //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+// //   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 // //   const deadCount = allStatuses['DEAD']||0;
 
 // //   const navItems=[
@@ -14720,7 +14720,7 @@
 // //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 // //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 // //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-// //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+// //                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 // //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 // //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 // //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -15231,7 +15231,7 @@
 //   // All status counts for territory bar (plain derivation, no hook)
 //   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
 //   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-//   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+//   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
 //   const deadCount = allStatuses['DEAD']||0;
 
 //   const navItems=[
@@ -15341,7 +15341,7 @@
 //                 <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(sbP||0,100)}%`,background:pclr(sbP)}}/></div>
 //                 <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:3}}>
 //                   {Object.entries(allStatuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>{
-//                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+//                     const statusColors={'ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','KEY ACCOUNT':'#a78bfa','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
 //                     const cl=statusColors[s.toUpperCase()]||'#55546a';
 //                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
 //                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>
@@ -16086,7 +16086,7 @@ export default function App(){
   // All status counts for territory bar (plain derivation, no hook)
   const allStatuses = (() => { const map={}; myDealers.forEach(d=>{ const s=(d.status||'OTHER').trim()||'OTHER'; map[s]=(map[s]||0)+1; }); return map; })();
   const activeCount = (allStatuses['ACTIVE']||0)+(allStatuses['ACHIVERS']||0)+(allStatuses['ACHIEVERS']||0)+(allStatuses['KEY ACCOUNT']||0);
-  const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['RECENTLY INACTIVE']||0);
+  const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
   const deadCount = allStatuses['DEAD']||0;
 
   const navItems=[
@@ -16527,14 +16527,14 @@ export default function App(){
                       'STAR':0, 'KEY ACCOUNT':1,
                       'ACHIEVER':2, 'ACHIEVERS':2, 'ACHIVERS':2,
                       'ACTIVE':3,
-                      'RECENTLY INACTIVE':4, 'INACTIVE':5, 'DEAD':6,
+                      'REACTIVE':4, 'INACTIVE':5, 'DEAD':6,
                     };
                     const sa = a[0].toUpperCase(), sb = b[0].toUpperCase();
                     const ra = order[sa] ?? 99, rb = order[sb] ?? 99;
                     if(ra !== rb) return ra - rb;
                     return b[1] - a[1]; // tie-break by larger count
                   }).map(([s,c])=>{
-                    const statusColors={'STAR':'#fbbf24','KEY ACCOUNT':'#a78bfa','ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','ACHIEVER':'#34d399','INACTIVE':'#fbbf24','RECENTLY INACTIVE':'#fb923c','DEAD':'#f87171'};
+                    const statusColors={'STAR':'#fbbf24','KEY ACCOUNT':'#a78bfa','ACTIVE':'#34d399','ACHIVERS':'#34d399','ACHIEVERS':'#34d399','ACHIEVER':'#34d399','INACTIVE':'#fbbf24','REACTIVE':'#fb923c','DEAD':'#f87171'};
                     const cl=statusColors[s.toUpperCase()]||'#55546a';
                     return(<div key={s} style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
                       <span style={{color:cl,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>{s}</span>

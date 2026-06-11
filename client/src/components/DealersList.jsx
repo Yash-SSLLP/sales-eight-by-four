@@ -1334,25 +1334,19 @@ const DealersList=({dealers,currentUser,users,onEdit,onDelete,onAdd,selected,set
   },[pendingFilters,clearPending]);
 
   const dealersForMonth=useMemo(()=>{
-    return dealers
-      .filter(d => {
-        // If dealer has monthsWithData info, only show if this month was uploaded
-        // If no monthsWithData (sheet mode), show all dealers
-        if(d.monthsWithData && d.monthsWithData.size > 0) {
-          return d.monthsWithData.has(selectedMonthIdx);
-        }
-        // Fallback: show if has any achieved data
-        return true;
-      })
-      .map(d => ({
-        ...d,
-        achieved:     d.months?.[selectedMonthIdx]||0,
-        target:       d.monthTargets?.[selectedMonthIdx]||0,
-        status:       d.monthStatus?.[selectedMonthIdx]  || d.status      || 'ACTIVE',
-        zone:         d.monthZone?.[selectedMonthIdx]    || d.zone         || '',
-        category:     d.monthCat?.[selectedMonthIdx]     || d.category     || '',
-        categoryType: d.monthCatType?.[selectedMonthIdx] || d.categoryType || '',
-      }));
+    // Show EVERY dealer in the All-Dealers page — don't silently hide ones
+    // that have no entries for the active month. Dealers without an entry
+    // for this month just display 0 in achieved/target columns. The total
+    // count on this page now matches the sidebar.
+    return dealers.map(d => ({
+      ...d,
+      achieved:     d.months?.[selectedMonthIdx]||0,
+      target:       d.monthTargets?.[selectedMonthIdx]||0,
+      status:       d.monthStatus?.[selectedMonthIdx]  || d.status      || 'ACTIVE',
+      zone:         d.monthZone?.[selectedMonthIdx]    || d.zone         || '',
+      category:     d.monthCat?.[selectedMonthIdx]     || d.category     || '',
+      categoryType: d.monthCatType?.[selectedMonthIdx] || d.categoryType || '',
+    }));
   },[dealers,selectedMonthIdx]);
 
   const allStatuses    =useMemo(()=>[...new Set(dealers.map(x=>(x.status||'').trim()).filter(Boolean))].sort(),[dealers]);

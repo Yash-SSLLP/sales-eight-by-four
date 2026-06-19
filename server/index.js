@@ -159,6 +159,9 @@ import settingsRoutes    from './routes/settings.js';
 import followupRoutes    from './routes/Followups.js';
 import sampleRoutes      from './routes/samples.js';
 import crmRoutes         from './routes/crm.js';
+import categoryRoutes    from './routes/categories.js';
+import salesRoutes       from './routes/sales.js';
+import { seedDefaultCategories } from './routes/categories.js';
 
 dotenv.config();
 
@@ -184,6 +187,8 @@ app.use('/api/settings',    settingsRoutes);
 app.use('/api/followups',   followupRoutes);
 app.use('/api/samples',     sampleRoutes);
 app.use('/api/crm',         crmRoutes);
+app.use('/api/categories',  categoryRoutes);
+app.use('/api/sales',       salesRoutes);
 
 app.get('/api/health', (_, res) => res.json({ ok:true, time:new Date(), version:'1.0.0' }));
 
@@ -294,6 +299,14 @@ mongoose.connect(process.env.MONGO_URI)
     console.log('✅ MongoDB connected');
     await seedUsers();
     await runMigrations();
+    // Seed the default Category/Sub-Category taxonomy on first boot.
+    // Safe to call every boot — it skips entries that already exist.
+    try {
+      const r = await seedDefaultCategories();
+      console.log(`[CATEGORIES] seed → inserted=${r.inserted}, updated=${r.updated}`);
+    } catch(e) {
+      console.warn('[CATEGORIES] seed failed:', e.message);
+    }
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
       console.log(`✅ Server → http://localhost:${PORT}`);

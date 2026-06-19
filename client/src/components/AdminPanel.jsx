@@ -267,6 +267,7 @@ import { useMonth } from '../context';
 import { Avatar, KPI, StatCard } from './UI';
 import CategoryDrillChart from './CategoryDrillChart';
 import SampleMasterTab from './SampleMasterTab';
+import ManageCategories from './ManageCategories';
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
 
@@ -441,6 +442,7 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
         <button className={`tab ${tab==='category'?'active':''}`} onClick={()=>setTab('category')}>Categories</button>
         <button className={`tab ${tab==='months'?'active':''}`} onClick={()=>setTab('months')} style={{color:tab==='months'?'var(--acc)':'var(--t3)'}}>📅 Month Settings</button>
         <button className={`tab ${tab==='samples'?'active':''}`} onClick={()=>setTab('samples')} style={{color:tab==='samples'?'var(--acc)':'var(--t3)'}}>📦 Sample Master</button>
+        <button className={`tab ${tab==='cats'?'active':''}`} onClick={()=>setTab('cats')} style={{color:tab==='cats'?'var(--acc)':'var(--t3)'}}>🏷️ Categories</button>
       </div>
       {tab==='summary'&&(
         <>
@@ -529,6 +531,11 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
       {tab==='samples'&&(
         <div style={{padding:'4px 0'}}>
           <SampleMasterTab/>
+        </div>
+      )}
+      {tab==='cats'&&(
+        <div style={{padding:'4px 0'}}>
+          <ManageCategories currentUser={currentUser}/>
         </div>
       )}
       {tab==='months'&&(

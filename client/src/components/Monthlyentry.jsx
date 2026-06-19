@@ -626,12 +626,13 @@
 
 
 import React, { useState, useMemo, useRef } from 'react';
-import { Save, Search, ChevronDown, CheckCircle, Edit3, Filter, AlertCircle, Download, Upload, FileSpreadsheet } from 'lucide-react';
+import { Save, Search, ChevronDown, CheckCircle, Edit3, Filter, AlertCircle, Download, Upload, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { useMonth } from '../context';
 import { MO as MO_DEFAULT } from '../constants';
 import { num, pct, spct, pclr, monthTarget } from '../utils';
 import { api } from '../api';
 import { Avatar } from './UI';
+import { confirmDialog } from './Toast';
 
 const STATUSES = ['STAR','ACTIVE','KEY ACCOUNT','ACHIVERS','REACTIVE','INACTIVE','DEAD','NEW','PROSPECT'];
 
@@ -652,6 +653,138 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
   const fileRef = useRef(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg]   = useState(null); // { type:'success'|'error', text }
+
+  // ── Category-wise Sales: download dynamic template + upload wide Excel ─────
+  // Uses the new /api/sales endpoints. The "month" state already holds an
+  // MO label like "Jun-26" — the server's normaliser handles that just fine.
+  const catFileRef            = useRef(null);
+  const [catBusy, setCatBusy] = useState(false);
+  const [catTplBusy, setCatTplBusy] = useState(false);
+  const [catMsg, setCatMsg]   = useState(null); // { type, text, detail? }
+  const [catReplace, setCatReplace] = useState(true);
+
+  // Convert MO label "Jun-26" → "2026-06" for the server's normalised month field
+  const toYearMonth = (lbl) => {
+    if (!lbl) return '';
+    const m = /^([A-Za-z]{3,})-(\d{2,4})$/.exec(lbl.trim());
+    if (!m) return '';
+    const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const mi = months.indexOf(m[1].slice(0,3).toLowerCase());
+    if (mi < 0) return '';
+    let y = +m[2]; if (y < 100) y += 2000;
+    return `${y}-${String(mi+1).padStart(2,'0')}`;
+  };
+
+  const handleCatTemplate = async () => {
+    setCatBusy(true); setCatTplBusy(true); setCatMsg(null);
+    try {
+      // Pre-fill with current dealer data for the selected month + salesman filter
+      await api.salesDownloadTemplate({
+        monthLabel: month,
+        salesman: (isAdmin && salesman !== 'all') ? salesman : '',
+      });
+      const who = isAdmin && salesman === 'all'
+        ? 'All Salesmen'
+        : (users[salesman]?.name || salesman || 'you');
+      setCatMsg({ type:'success', text:`Template downloaded for ${who} — ${month}. Pre-filled with current dealer data. Edit and upload below.` });
+    } catch(e) {
+      setCatMsg({ type:'error', text:`Template download failed: ${e.message}` });
+    } finally {
+      setCatBusy(false); setCatTplBusy(false);
+    }
+  };
+
+  const handleCatUploadClick = () => catFileRef.current?.click();
+
+  // Admin: full clean-slate for a month.
+  // Wipes BOTH (a) category-wise Sale rows for the month, AND (b) each dealer's
+  // monthlyData[month] (Target / Achieved / Status / Zone / City / etc.). Then
+  // runs dealer dedupe so any duplicate dealer rows from a bad upload are
+  // collapsed too. Dealer master fields (name, salesman, city, etc.) are kept.
+  const handleCatDeleteMonth = async () => {
+    const ym = toYearMonth(month);
+    if (!ym) { setCatMsg({ type:'error', text:`Could not understand month "${month}".` }); return; }
+    const ok = await confirmDialog({
+      title: `Reset ALL data for ${month}?`,
+      message: [
+        `This will wipe everything for ${month} so you can re-upload cleanly:`,
+        '',
+        `• Every category-wise sale row for ${month}`,
+        `• Every dealer's Target / Achieved / Status / Zone / City for ${month}`,
+        `• Duplicate dealer rows (same name + same salesman) created during the bad upload`,
+        '',
+        'Dealer master records and OTHER months are NOT touched.',
+      ].join('\n'),
+      confirmText: `Yes, reset ${month}`,
+      cancelText: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
+    setCatBusy(true); setCatMsg(null);
+    try {
+      // 1. Delete category sale rows for the YYYY-MM month
+      const r1 = await api.salesDeleteMonth(ym).catch(e => ({ deleted: 0, _err: e.message }));
+      // 2. Delete dealer.monthlyData[label] for all dealers
+      const r2 = await api.deleteMonth(month).catch(e => ({ dealersTouched: 0, _err: e.message }));
+      // 3. Remove every dealer created by the category-wise Excel upload
+      //    (those carry source='cat-upload' from the server). Sale rows are
+      //    re-pointed at the matching original dealer first.
+      const r0 = await api.deleteDealersBySource('cat-upload', false)
+                          .catch(e => ({ deleted: 0, migrated: 0, _err: e.message }));
+      // 4a. Dedupe exact-match dealers (same name + same salesman)
+      const r3 = await api.dedupeDealers(false).catch(e => ({ duplicatesRemoved: 0, _err: e.message }));
+      // 4b. Dedupe suffix-dupes ("X pranav" when "X" exists for salesman Pranav)
+      const r4 = await api.cleanupSuffixDupes(false).catch(e => ({ deleted: 0, _err: e.message }));
+
+      const parts = [
+        `Reset complete for ${month}.`,
+        `Bad-upload dealers removed: ${r0.deleted || 0} (sale rows migrated: ${r0.migrated || 0}).`,
+        `Category sale rows deleted: ${r1.deleted || 0}.`,
+        `Dealer-month records cleared: ${r2.dealersTouched || 0}.`,
+        `Exact duplicate dealers removed: ${r3.duplicatesRemoved ?? r3.removed ?? 0}.`,
+        `Salesman-suffix duplicate dealers removed: ${r4.deleted || 0} (sale rows migrated: ${r4.migrated || 0}).`,
+        `You can re-upload cleanly now.`,
+      ];
+      setCatMsg({ type:'success', text: parts.join(' ') });
+      if (onSaved) onSaved(); // refresh Monthly Entry table
+    } catch(e) {
+      setCatMsg({ type:'error', text: `Reset failed: ${e.message}` });
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
+  const handleCatFileChosen = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // allow re-uploading the same file
+    if (!f) return;
+    if (!/\.(xlsx|xls)$/i.test(f.name)) {
+      setCatMsg({ type:'error', text:'Please pick an .xlsx file.' });
+      return;
+    }
+    setCatBusy(true); setCatMsg(null);
+    try {
+      const ym  = toYearMonth(month) || month;   // YYYY-MM for Sale rows
+      const res = await api.salesUpload(f, ym, catReplace, month /* MO label */);
+      const parts = [`${month}: ${res.inserted} category-sale rows inserted.`];
+      if (res.dealersUpdated)     parts.push(`${res.dealersUpdated} dealers updated.`);
+      if (res.dealersCreated)     parts.push(`${res.dealersCreated} new dealers created.`);
+      if (res.monthlyDataUpdated) parts.push(`${res.monthlyDataUpdated} dealer-month records written.`);
+      if (res.unknownSubCategories?.length) {
+        parts.push(`Unknown sub-cats bucketed under OTHER: ${res.unknownSubCategories.join(', ')}.`);
+      }
+      if (res.unmatchedDealersCount > 0) {
+        parts.push(`${res.unmatchedDealersCount} dealer name(s) didn't match master list.`);
+      }
+      setCatMsg({ type:'success', text: parts.join(' ') });
+      // Refresh the Monthly Entry table from DB so updates show
+      if (onSaved) onSaved();
+    } catch(e) {
+      setCatMsg({ type:'error', text: `Upload failed: ${e.message}` });
+    } finally {
+      setCatBusy(false);
+    }
+  };
 
   const moIdx = MO.indexOf(month);
   const salesmen = Object.values(users).filter(u => u.role === 'salesman');
@@ -856,9 +989,6 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
 
   return (
     <div className="fade">
-      {/* Hidden file input for bulk upload */}
-      <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:'none'}} onChange={handleFileChosen}/>
-
       <div style={{marginBottom:16}}>
         <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'.15em',marginBottom:4}}>Data Entry</div>
         <div style={{fontSize:22,fontWeight:700}}>Monthly Entry</div>
@@ -935,68 +1065,81 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
         )}
       </div>
 
-      {/* ── Bulk Excel: Download per-salesman template + Upload back ──────── */}
-      <div className="card" style={{marginBottom:14, padding:14, background:'rgba(99,102,241,0.04)', border:'1px solid rgba(99,102,241,0.18)'}}>
-        <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
-          <FileSpreadsheet size={15} color="#a5b4fc"/>
-          <span style={{fontSize:13, fontWeight:700, color:'var(--t1)'}}>Bulk Excel — download &amp; upload</span>
-          <span style={{fontSize:10, color:'var(--t3)', background:'rgba(99,102,241,0.12)', padding:'2px 7px', borderRadius:4, fontWeight:700, letterSpacing:'.04em'}}>
-            {month}{salesman !== 'all' ? ' · ' + (users[salesman]?.name || salesman) : ' · All salesmen'}
-          </span>
-        </div>
-        <div style={{fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.5}}>
-          Download a pre-filled spreadsheet for the selected month and salesman — every column included (name, city, state, zone, status, target, achieved, category, credit&hellip;).
-          Edit the numbers in Excel, then upload it back. New dealers are added, existing ones updated. Other months are not touched.
-        </div>
-        <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-          <button onClick={handleDownloadTemplate} disabled={bulkBusy}
-            style={{
-              display:'flex', alignItems:'center', gap:6,
-              background:'#6366f1', color:'#fff', border:'none',
-              padding:'8px 14px', borderRadius:6, fontSize:12, fontWeight:700,
-              cursor: bulkBusy ? 'not-allowed' : 'pointer', opacity: bulkBusy ? 0.6 : 1,
-            }}>
-            <Download size={13}/> Download Filled Template ({filtered.length} dealers)
-          </button>
-          <button onClick={handleUploadClick} disabled={bulkBusy}
-            title={isAdmin && salesman === 'all'
-              ? 'Upload All-Salesmen template — file MUST include a "Salesman" column'
-              : 'Upload your filled Excel/CSV'}
-            style={{
-              display:'flex', alignItems:'center', gap:6,
-              background:'#22c55e', color:'#0c0c1e',
-              border:'1px solid #15803d',
-              padding:'8px 14px', borderRadius:6, fontSize:12, fontWeight:700,
-              cursor: bulkBusy ? 'not-allowed' : 'pointer',
-              opacity: bulkBusy ? 0.6 : 1,
-            }}>
-            {bulkBusy
-              ? <><div style={{width:11,height:11,border:'2px solid currentColor',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .7s linear infinite'}}/> Uploading…</>
-              : <><Upload size={13}/> Upload Filled Excel/CSV</>}
-          </button>
-          <div style={{flex:1}}/>
-          {isAdmin && salesman === 'all' && (
-            <span style={{fontSize:11, color:'#fbbf24', fontWeight:600}}
-              title="The All-Salesmen template includes a Salesman column. Each row is routed to the salesman named in that column.">
-              ⓘ All-Salesmen mode: file must include a Salesman column
+      {/* ── ONE Bulk Excel: download pre-filled, edit, upload back ────────── */}
+      {isAdmin && (
+        <div className="card" style={{marginBottom:14, padding:14, background:'rgba(34,197,94,0.04)', border:'1px solid rgba(34,197,94,0.20)'}}>
+          {/* hidden file input for the category upload */}
+          <input ref={catFileRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={handleCatFileChosen}/>
+
+          <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap'}}>
+            <FileSpreadsheet size={15} color="#34d399"/>
+            <span style={{fontSize:13, fontWeight:700, color:'var(--t1)'}}>Bulk Excel — Download &amp; Upload</span>
+            <span style={{fontSize:10, color:'var(--t3)', background:'rgba(34,197,94,0.14)', padding:'2px 7px', borderRadius:4, fontWeight:700, letterSpacing:'.04em'}}>
+              {month}{salesman !== 'all' ? ' · ' + (users[salesman]?.name || salesman) : ' · All salesmen'}
             </span>
+            <span style={{fontSize:10, color:'var(--t3)'}}>· {filtered.length} dealers</span>
+          </div>
+          <div style={{fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.5}}>
+            ONE Excel does everything — pre-filled with current dealer info (City, State, Zone, Status, Target, Credit) plus a column for every Product Type from your taxonomy.
+            Fill the product-type quantity cells, save, and upload. Updates dealer info + per-month numbers + category-wise sales in one shot.
+            View results under <b>Sales by Category</b>. Manage product types under <b>Admin Panel → Categories</b>.
+          </div>
+          <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+            <button onClick={handleCatTemplate} disabled={catBusy}
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                background:'#0ea5e9', color:'#fff', border:'none',
+                padding:'8px 14px', borderRadius:6, fontSize:12, fontWeight:700,
+                cursor: catBusy ? 'not-allowed' : 'pointer', opacity: catBusy ? 0.6 : 1,
+              }}>
+              <Download size={13}/> {catTplBusy ? 'Building…' : `Download Template (${filtered.length} dealers)`}
+            </button>
+            <button onClick={handleCatUploadClick} disabled={catBusy}
+              title={`Upload your filled Excel for ${month}`}
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                background:'#22c55e', color:'#0c0c1e',
+                border:'1px solid #15803d',
+                padding:'8px 14px', borderRadius:6, fontSize:12, fontWeight:700,
+                cursor: catBusy ? 'not-allowed' : 'pointer', opacity: catBusy ? 0.6 : 1,
+              }}>
+              {catBusy && !catTplBusy
+                ? <><div style={{width:11,height:11,border:'2px solid currentColor',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .7s linear infinite'}}/> Uploading…</>
+                : <><Upload size={13}/> Upload Filled Excel</>}
+            </button>
+            <button onClick={handleCatDeleteMonth} disabled={catBusy}
+              title={`Wipe ${month}: category sales + per-dealer target/achieved/status + duplicate dealers (so you can re-upload cleanly)`}
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                color:'#fca5a5',
+                background:'rgba(248,113,113,0.08)',
+                border:'1px solid rgba(248,113,113,0.4)',
+                padding:'8px 12px', borderRadius:6, fontSize:11, fontWeight:600,
+                cursor: catBusy ? 'not-allowed' : 'pointer', opacity: catBusy ? 0.6 : 1,
+              }}>
+              <Trash2 size={12}/> Reset {month} (clean slate)
+            </button>
+            <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--t3)',marginLeft:6}}>
+              <input type="checkbox" checked={catReplace} onChange={e=>setCatReplace(e.target.checked)} />
+              Replace existing data for {month}
+            </label>
+          </div>
+
+          {catMsg && (
+            <div style={{
+              marginTop:10, padding:'8px 12px', borderRadius:7, fontSize:12, lineHeight:1.4,
+              background: catMsg.type === 'success' ? 'rgba(34,197,94,0.10)' : 'rgba(248,113,113,0.10)',
+              border: '1px solid ' + (catMsg.type === 'success' ? '#15803d55' : '#7f1d1d55'),
+              color:  catMsg.type === 'success' ? '#86efac' : '#fca5a5',
+              display:'flex', alignItems:'flex-start', gap:6,
+            }}>
+              {catMsg.type === 'success' ? <CheckCircle size={13} style={{flexShrink:0, marginTop:1}}/> : <AlertCircle size={13} style={{flexShrink:0, marginTop:1}}/>}
+              <span style={{flex:1}}>{catMsg.text}</span>
+              <button onClick={() => setCatMsg(null)} style={{background:'none', border:'none', color:'inherit', cursor:'pointer', padding:0}}>×</button>
+            </div>
           )}
         </div>
-
-        {bulkMsg && (
-          <div style={{
-            marginTop:10, padding:'8px 12px', borderRadius:7, fontSize:12, lineHeight:1.4,
-            background: bulkMsg.type === 'success' ? 'rgba(34,197,94,0.10)' : 'rgba(248,113,113,0.10)',
-            border: '1px solid ' + (bulkMsg.type === 'success' ? '#15803d55' : '#7f1d1d55'),
-            color:  bulkMsg.type === 'success' ? '#86efac' : '#fca5a5',
-            display:'flex', alignItems:'flex-start', gap:6,
-          }}>
-            {bulkMsg.type === 'success' ? <CheckCircle size={13} style={{flexShrink:0, marginTop:1}}/> : <AlertCircle size={13} style={{flexShrink:0, marginTop:1}}/>}
-            <span style={{flex:1}}>{bulkMsg.text}</span>
-            <button onClick={() => setBulkMsg(null)} style={{background:'none', border:'none', color:'inherit', cursor:'pointer', padding:0}}>×</button>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Table */}
       <div className="card" style={{padding:0,overflow:'hidden'}}>

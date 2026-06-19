@@ -15381,7 +15381,7 @@
 // }
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LayoutDashboard, Users, TrendingUp, Settings, LogOut, Bell, GitCompare, Menu, RefreshCw, Map, AlertTriangle, Upload, Edit3, Calendar, LogIn, ChevronDown, ShieldCheck, Shield, Palette, Check, Briefcase, Camera, ClipboardList, UserCheck, Plane, FileSpreadsheet, LifeBuoy, CheckSquare } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, Settings, LogOut, Bell, GitCompare, Menu, RefreshCw, Map, AlertTriangle, Upload, Edit3, Calendar, LogIn, ChevronDown, ShieldCheck, Shield, Palette, Check, Briefcase, Camera, ClipboardList, UserCheck, Plane, FileSpreadsheet, LifeBuoy, CheckSquare, BarChart3 } from 'lucide-react';
 import { DEFAULT_USERS, MO as MO_DEFAULT, CURRENT_MONTH_IDX as CURRENT_MONTH_IDX_DEFAULT, CURRENT_MONTH_LABEL as CURRENT_MONTH_LABEL_DEFAULT, CURRENT_MONTH_SHORT as CURRENT_MONTH_SHORT_DEFAULT } from './constants';
 import { pct, spct, pclr, uid, isoNow, storage, parseCSV, fetchCSV, parseOutstandingCSV } from './utils';
 import { api, dbDealerToApp, dbOutstandingToApp, saveToken, getToken } from './api';
@@ -15411,6 +15411,8 @@ import MonthlyEntry     from './components/Monthlyentry';
 import Outstanding      from './components/Outstanding';
 import ManageMonths     from './components/ManageMonths';
 import ApiUrlSettings   from './components/ApiUrlSettings';
+import SalesUpload      from './components/SalesUpload';
+import SalesByCategory  from './components/SalesByCategory';
 
 // ── Cookie helpers ────────────────────────────────────────
 const COOKIE_KEY = 'stp_session';
@@ -15472,6 +15474,7 @@ export default function App(){
   const [bulkAction,setBulkAction]=useState(null);
   const [sidebarOpen,setSidebarOpen]=useState(typeof window!=='undefined'&&window.innerWidth>768);
   const [syncing,setSyncing]=useState(false);
+  const [reloadingDB, setReloadingDB] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [dbLoaded,setDbLoaded]=useState(false);
   const [outstandingData,setOutstandingData]=useState([]);
@@ -15908,14 +15911,23 @@ export default function App(){
     try {
       const currentMO = moOverride || activeMO;
 
-      // Load month config, dealers, notes, outstanding all at once
+      // Load month config, dealers, notes, outstanding all at once.
+      // Each call has its own .catch so a single endpoint returning 404 (or
+      // a 500) doesn't kill the whole reload — we still set whatever data
+      // came back successfully.
+      const safe = (p, fallback) => p.then(d => d, e => { console.warn('[loadFromDB partial fail]', e?.message); return fallback; });
       const [dbMonthCfg, dbDealers, dbNotes, dbOut, dbFollowups] = await Promise.all([
-        api.getMonthConfig().catch(()=>null),
-        api.getDealers(currentMO),
-        api.getNotes(),
-        api.getOutstanding(),
-        api.getFollowups().catch(()=>[]),
+        safe(api.getMonthConfig(), null),
+        safe(api.getDealers(currentMO), []),
+        safe(api.getNotes(), []),
+        safe(api.getOutstanding(), []),
+        safe(api.getFollowups(), []),
       ]);
+      // Normalise to arrays so the rest of the code never NPEs on a 404.
+      const _dbDealers   = Array.isArray(dbDealers)   ? dbDealers   : [];
+      const _dbNotes     = Array.isArray(dbNotes)     ? dbNotes     : [];
+      const _dbOut       = Array.isArray(dbOut)       ? dbOut       : [];
+      const _dbFollowups = Array.isArray(dbFollowups) ? dbFollowups : [];
 
       // Apply month config — TIMESTAMP-based merge so the most recent edit
       // always wins. Whichever of local/DB has the newer `updatedAt` is
@@ -15946,13 +15958,16 @@ export default function App(){
       }
       // Equal timestamps (or both missing) → leave finalMO as currentMO
 
-      // Set dealers
-      const appDealers = dbDealers.map(d => dbDealerToApp(d, finalMO));
-      if(appDealers.length > 0) setDealers(appDealers);
+      // Set dealers — ALWAYS write to state, even if the array is empty.
+      // The old `if(appDealers.length > 0)` guard hid genuine empties and
+      // made the Reload DB button look broken when the user expected a
+      // change. If DB really has no dealers, that's what we should show.
+      const appDealers = _dbDealers.map(d => dbDealerToApp(d, finalMO));
+      setDealers(appDealers);
       setDbLoaded(true);
 
-      // Set notes
-      setNotes(dbNotes.map(n=>({
+      // Set notes (only if endpoint responded)
+      setNotes(_dbNotes.map(n=>({
         ...n,
         id:       n._id?.toString()||n.id,
         content:  n.text||n.content||'',    // DB uses 'text', app uses 'content'
@@ -15964,17 +15979,48 @@ export default function App(){
       })));
 
       // Set outstanding — if DB has data use it, else try sheet URL
-      if(dbFollowups?.length>0) setOutFollowups(dbFollowups);
-      if(dbOut?.length > 0) setOutstandingData(dbOutstandingToApp(dbOut));
+      if(_dbFollowups.length>0) setOutFollowups(_dbFollowups);
+      if(_dbOut.length > 0) setOutstandingData(dbOutstandingToApp(_dbOut));
 
       setLastSync(new Date().toLocaleTimeString('en-IN'));
       setUseDB(true);
       setDbLoaded(true);
-      return appDealers.length > 0; // return true only if we got dealers
+      return {
+        ok: true,
+        count: appDealers.length,
+        notes: _dbNotes.length,
+        outstanding: _dbOut.length,
+        followups: _dbFollowups.length,
+      };
     } catch(e) {
       console.warn('DB load failed:', e.message);
       setDbLoaded(true);
-      return false;
+      return { ok:false, error: e?.message || 'Reload failed' };
+    }
+  };
+
+  // Wrapper around loadFromDB that gives the user visible feedback when they
+  // tap the "Reload DB" button — spinning icon while running, success toast
+  // with the dealer count, error toast if the API failed. Without this the
+  // button looked dead because nothing happened in the UI.
+  const handleReloadDB = async () => {
+    if(reloadingDB) return;
+    if(!localStorage.getItem('stp_jwt')){
+      notify.error('Sign in to reload from server.');
+      return;
+    }
+    setReloadingDB(true);
+    try {
+      const res = await loadFromDB(activeMO);
+      if(res && res.ok){
+        notify.success('Reloaded ' + (res.count || 0) + ' dealers from DB');
+      } else {
+        notify.error('Reload failed: ' + (res?.error || 'unknown'));
+      }
+    } catch(e){
+      notify.error('Reload failed: ' + (e?.message || e));
+    } finally {
+      setReloadingDB(false);
     }
   };
 
@@ -16097,6 +16143,7 @@ export default function App(){
     {id:'map',label:'Map View',icon:Map},
     {id:'outstanding',label:'Outstanding',icon:AlertTriangle},
     {id:'upload',label:'Upload Data',icon:Upload,adminOnly:true},
+    {id:'salesCat',   label:'Sales by Category',  icon:BarChart3},
     {id:'entry',label:'Monthly Entry',icon:Edit3,adminOnly:true},
     {id:'months',label:'Manage Months',icon:Calendar,adminOnly:true},
     {id:'followups',label:'Follow-ups',icon:Bell,badge:overdueCount},
@@ -16390,11 +16437,11 @@ export default function App(){
             </div>
 
             {/* ── Reload from DB button — safe refresh, doesn't touch Sheets ── */}
-            <button onClick={()=>loadFromDB(activeMO)} disabled={syncing} className="btn"
+            <button onClick={handleReloadDB} disabled={syncing || reloadingDB} className="btn"
               title="Reload all dealer data from MongoDB. Safe — never touches Google Sheets."
               style={{fontSize:11,display:'flex',alignItems:'center',gap:4,padding:'6px 8px',flexShrink:0,color:'#86efac'}}>
-              <RefreshCw size={13}/>
-              <span className="hide-sm">Reload DB</span>
+              <RefreshCw size={13} className={reloadingDB?'spin':''}/>
+              <span className="hide-sm">{reloadingDB ? 'Reloading…' : 'Reload DB'}</span>
             </button>
 
             {/* ── Sync from Sheets button — icon only on mobile ── */}
@@ -16576,6 +16623,8 @@ export default function App(){
                   {screen==='map'       &&<IndiaMap dealers={myDealers} users={users} onOpenDealer={setEditingId}/>}
                   {screen==='outstanding'&&<Outstanding dealers={myDealers} users={users} onOpenDealer={setEditingId} currentUser={currentUser} outstandingData={outstandingData} setOutstandingData={setOutstandingData}/>}
                   {screen==='upload'&&<UploadMonth users={users} currentUser={currentUser} onSuccess={()=>loadFromDB(activeMO)}/>}
+                  {screen==='salesUpload' && isStaff && <SalesUpload currentUser={currentUser} onUploaded={()=>{}}/>}
+                  {screen==='salesCat'    && <SalesByCategory currentUser={currentUser} users={users} dealers={dealers} onOpenDealer={setEditingId}/>}
                   {screen==='entry'&&<MonthlyEntry dealers={myDealers} users={users} currentUser={currentUser} onUpdateDealer={updateDealerFields} onSaved={()=>loadFromDB(activeMO)}/>}
                   {screen==='months'&&isStaff&&<ManageMonths dealers={dealers} users={users} currentUser={currentUser} monthConfig={monthConfig} saveMonthConfig={saveMonthConfig} loadFromDB={loadFromDB} onSync={syncSheets} syncing={syncing} lastSync={lastSync}/>}
                   {screen==='followups'&&<FollowupsHub notes={myNotes} dealers={myDealers} users={users} onUpdateNote={updateNote} onDeleteNote={deleteNote} onOpenDealer={setEditingId}/>}

@@ -1279,7 +1279,7 @@
 
 
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Users, Target, Award, Activity, TrendingUp, Clock, Bell, AlertTriangle, Search, MapPin, Star, ArrowUpRight, ArrowDownRight, X, GripVertical, Hash } from 'lucide-react';
 import { MO as MO_CONST, CURRENT_MONTH_IDX } from '../constants';
@@ -1288,6 +1288,21 @@ import { useMonth } from '../context';
 import { StatusBadge, Avatar, MiniBars, StatCard, MultiSelect } from './UI';
 import MapView from './MapView';
 import CategoryDrillChart from './CategoryDrillChart';
+import CategorySalesPanel from './CategorySalesPanel';
+import CategoryFilter from './CategoryFilter';
+import { api } from '../api';
+
+// MO label like "Jun-26" → YYYY-MM ("2026-06") used by the Sales collection.
+const _moMonths = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+function _moLabelToYM(lbl) {
+  if (!lbl) return '';
+  const m = /^([A-Za-z]{3,})-(\d{2,4})$/.exec(String(lbl).trim());
+  if (!m) return '';
+  const mi = _moMonths.indexOf(m[1].slice(0,3).toLowerCase());
+  if (mi < 0) return '';
+  let y = +m[2]; if (y < 100) y += 2000;
+  return `${y}-${String(mi+1).padStart(2,'0')}`;
+}
 
 const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   const {selectedMonthIdx, MO:ctxMO}=useMonth();
@@ -1295,12 +1310,91 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   const selMoLabel=MO[selectedMonthIdx].slice(0,3);
   const selMoFull=MO[selectedMonthIdx];
 
-  const dealersForMonth=useMemo(()=>dealers.map(d=>({
-    ...d,
-    achieved:d.months[selectedMonthIdx]||0,
-    // Smart per-month target (see utils.monthTarget for full logic)
-    target:monthTarget(d, selectedMonthIdx),
-  })),[dealers,selectedMonthIdx]);
+  // ── Category-wise sales for the selected month — fetched from the Sale
+  // collection. Used for (a) the include/exclude filter, (b) adjusting the
+  // Achieved KPI, AND (c) adjusting every dealer's per-month achieved value
+  // so the status chips (trending up, dormant, top performer, …) recompute
+  // based on just the selected categories.
+  const [catRowsMo,   setCatRowsMo]   = useState([]);   // [{category, subCategory, qty}]
+  const [dealerCatMo, setDealerCatMo] = useState([]);   // [{dealer, byCategory, total}]
+  useEffect(() => {
+    const ym = _moLabelToYM(selMoFull);
+    if (!ym) { setCatRowsMo([]); setDealerCatMo([]); return; }
+    let cancelled = false;
+    api.salesByCategory({ month: ym })
+      .then(r => { if (!cancelled) setCatRowsMo(r.rows || []); })
+      .catch(() => { if (!cancelled) setCatRowsMo([]); });
+    api.salesByDealer({ month: ym })
+      .then(r => { if (!cancelled) setDealerCatMo(r.rows || []); })
+      .catch(() => { if (!cancelled) setDealerCatMo([]); });
+    return () => { cancelled = true; };
+  }, [selMoFull]);
+
+  // Map dealerName.lower → { categoryName: qty } so we can subtract excluded
+  // categories' qty from each dealer's current-month achieved.
+  const dealerCatMap = useMemo(() => {
+    const m = new Map();
+    for (const r of dealerCatMo) {
+      const subs = r.byCategory || {};
+      const perCat = {};
+      for (const [cat, subMap] of Object.entries(subs)) {
+        perCat[cat] = Object.values(subMap).reduce((s,v) => s + (v||0), 0);
+      }
+      m.set(String(r.dealer || '').toLowerCase().trim(), perCat);
+    }
+    return m;
+  }, [dealerCatMo]);
+
+  const allCatTotals = useMemo(() => {
+    const m = new Map();
+    for (const r of catRowsMo) m.set(r.category, (m.get(r.category)||0) + (r.qty||0));
+    return [...m.entries()]
+      .map(([category, total]) => ({ category, total }))
+      .sort((a,b) => b.total - a.total);
+  }, [catRowsMo]);
+
+  const [catExcluded, setCatExcluded] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('stp_overview_cat_excluded')||'[]')); }
+    catch { return new Set(); }
+  });
+  const toggleCatExcluded = (cat) => {
+    setCatExcluded(prev => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      try { localStorage.setItem('stp_overview_cat_excluded', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+  const clearCatExcluded = () => {
+    setCatExcluded(new Set());
+    try { localStorage.removeItem('stp_overview_cat_excluded'); } catch {}
+  };
+  const excludedQty = useMemo(
+    () => allCatTotals.filter(t => catExcluded.has(t.category)).reduce((s,t) => s + t.total, 0),
+    [allCatTotals, catExcluded],
+  );
+
+  const dealersForMonth=useMemo(()=>dealers.map(d=>{
+    const baseAch = d.months[selectedMonthIdx] || 0;
+    // When categories are excluded, subtract their qty from this dealer's
+    // current-month achieved. Falls back to the unfiltered achieved if no
+    // category data exists for this dealer (e.g. before any sales upload).
+    let adjAch = baseAch;
+    if (catExcluded.size > 0) {
+      const perCat = dealerCatMap.get(String(d.name||'').toLowerCase().trim());
+      if (perCat) {
+        let exclSum = 0;
+        for (const c of catExcluded) exclSum += (perCat[c] || 0);
+        adjAch = Math.max(0, baseAch - exclSum);
+      }
+    }
+    return {
+      ...d,
+      achieved: adjAch,
+      // Smart per-month target (see utils.monthTarget for full logic)
+      target: monthTarget(d, selectedMonthIdx),
+    };
+  }),[dealers,selectedMonthIdx,catExcluded,dealerCatMap]);
 
   const myD=dealersForMonth;
   const [overviewSearch,setOverviewSearch]=useState('');
@@ -1339,7 +1433,18 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   const dealerMatches=dealerSearch.trim()?myD.filter(d=>d.name.toLowerCase().includes(dealerSearch.toLowerCase())).slice(0,8):[];
 
   const tt=myD.reduce((s,x)=>s+x.target,0);
+  // myD.achieved is ALREADY category-filtered (subtractions happen in
+  // dealersForMonth above), so summing it directly gives the correct filtered
+  // total. Don't double-subtract excludedQty again.
   const ta=myD.reduce((s,x)=>s+x.achieved,0);
+  // For the "(−X)" sub-text on the KPI card, compute the delta from the
+  // raw (unfiltered) monthly achieved, so the displayed deduction matches
+  // exactly what we actually removed for the visible dealer set.
+  const rawAchievedSum = useMemo(
+    () => dealers.reduce((s,d) => s + (Number(d.months?.[selectedMonthIdx]) || 0), 0),
+    [dealers, selectedMonthIdx],
+  );
+  const filteredDelta = Math.max(0, rawAchievedSum - ta);
   const ap=pct(tt,ta);
   // Full status breakdown for territory overview
   const statusMap = {};
@@ -1369,29 +1474,46 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
     return Math.round(((cur - prev) / prev) * 100);
   };
   const hasAnyData = months => Array.isArray(months) && months.some(v => Number(v) > 0);
-  const risingList    = dealers.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) > 30);
-  const decliningList = dealers.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) < -20);
-  // Helpers that anchor calculations to the CURRENT month index instead of
-  // the end of the MO array (which may contain empty future months).
-  // months[currentMonthIdx] = this month, months[currentMonthIdx-1] = last
-  // month, etc. Older months go backwards.
-  const ci = selectedMonthIdx;   // current viewing month idx
+  // ── Build a category-filtered view of every dealer ──────────────────────
+  // When the user has excluded one or more categories, we substitute the
+  // CURRENT month's achieved with (originalAchieved − sum of excluded
+  // categories' qty for that dealer). All status lists below — rising,
+  // declining, dormant, top performer, needs attention, priority account,
+  // achievement %, salesman performance — recompute from this filtered set
+  // so they reflect "only the selected categories".
+  const ci = selectedMonthIdx;
+  const dealersFiltered = useMemo(() => {
+    if (catExcluded.size === 0) return dealers;
+    return dealers.map(d => {
+      const perCat = dealerCatMap.get(String(d.name||'').toLowerCase().trim());
+      if (!perCat) return d;
+      let exclSum = 0;
+      for (const c of catExcluded) exclSum += (perCat[c] || 0);
+      if (!exclSum) return d;
+      const base = Number(d.months?.[ci]) || 0;
+      const adj = Math.max(0, base - exclSum);
+      const nextMonths = Array.isArray(d.months) ? d.months.slice() : [];
+      nextMonths[ci] = adj;
+      return { ...d, months: nextMonths };
+    });
+  }, [dealers, catExcluded, dealerCatMap, ci]);
+
+  const risingList    = dealersFiltered.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) > 30);
+  const decliningList = dealersFiltered.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) < -20);
   const sumRange = (arr, from, to) => arr.slice(Math.max(0, from), Math.max(0, to)).reduce((a,b) => a + Number(b||0), 0);
-  // Dormant 3+ months = zero in current and previous 2 months AND had history before
-  const dormantList = dealers.filter(x => {
+  const dormantList = dealersFiltered.filter(x => {
     if(!Array.isArray(x.months)) return false;
-    const last3   = sumRange(x.months, ci - 2, ci + 1);    // [ci-2, ci-1, ci]
-    const before  = sumRange(x.months, 0, ci - 2);         // earlier months
+    const last3   = sumRange(x.months, ci - 2, ci + 1);
+    const before  = sumRange(x.months, 0, ci - 2);
     return last3 === 0 && before > 0;
   });
-  const recentlyInactiveList = dealers.filter(x => {
+  const recentlyInactiveList = dealersFiltered.filter(x => {
     if(!Array.isArray(x.months)) return false;
     const thisMonth = Number(x.months[ci]) || 0;
     const earlier   = sumRange(x.months, 0, ci);
     return thisMonth === 0 && earlier > 0;
   });
-  // Dead by data = zero for 6+ months; inactive by data = zero last 2-3 months
-  const inactiveByData = dealers.filter(x => {
+  const inactiveByData = dealersFiltered.filter(x => {
     if(!Array.isArray(x.months)) return false;
     const last3 = sumRange(x.months, ci - 2, ci + 1);
     const prev  = sumRange(x.months, ci - 5, ci - 2);
@@ -1440,16 +1562,42 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   const hasGeoFilter=geoFilter.city||geoFilter.state;
   const viewingLabel=selectedMonthIdx===CURRENT_MONTH_IDX?`${selMoFull} (Current)`:selMoFull;
 
+  // `ta` is already filtered (myD.achieved was pre-adjusted per-dealer).
+  // Use it directly — earlier the code subtracted `excludedQty` again here,
+  // which double-counted. Keep aliases so the KPI JSX below doesn't need
+  // changes.
+  const taAdj = ta;
+  const apAdj = ap;
+
   return(
     <div className="fade">
-      <div style={{marginBottom:22}}>
-        <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'0.15em',marginBottom:4}}>
-          {viewingLabel}
-          {selectedMonthIdx!==CURRENT_MONTH_IDX&&<span style={{marginLeft:8,background:'rgba(251,191,36,0.15)',color:'#fbbf24',padding:'2px 8px',borderRadius:4,fontSize:10}}>HISTORICAL VIEW</span>}
+      <div style={{marginBottom:22, display:'flex', alignItems:'flex-start', gap:16, flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 auto', minWidth:240}}>
+          <div style={{fontSize:11,color:'var(--acc)',textTransform:'uppercase',letterSpacing:'0.15em',marginBottom:4}}>
+            {viewingLabel}
+            {selectedMonthIdx!==CURRENT_MONTH_IDX&&<span style={{marginLeft:8,background:'rgba(251,191,36,0.15)',color:'#fbbf24',padding:'2px 8px',borderRadius:4,fontSize:10}}>HISTORICAL VIEW</span>}
+          </div>
+          <div style={{fontSize:24,fontWeight:700,letterSpacing:'-0.02em'}}>
+            {(currentUser.role==='admin'||currentUser.role==='superadmin')?'All Territories':'Your Territory'} — Overview
+          </div>
         </div>
-        <div style={{fontSize:24,fontWeight:700,letterSpacing:'-0.02em'}}>
-          {(currentUser.role==='admin'||currentUser.role==='superadmin')?'All Territories':'Your Territory'} — Overview
-        </div>
+
+        {/* ── Include / exclude category filter — top-right ─────────── */}
+        {allCatTotals.length > 0 && (
+          <CategoryFilter
+            categories={allCatTotals}
+            excluded={catExcluded}
+            onToggle={toggleCatExcluded}
+            onClear={clearCatExcluded}
+            onSelectOnly={(cat)=>{
+              // include only the selected category — exclude everything else
+              const newExcl = new Set(allCatTotals.map(t=>t.category).filter(c=>c!==cat));
+              try { localStorage.setItem('stp_overview_cat_excluded', JSON.stringify([...newExcl])); } catch {}
+              setCatExcluded(newExcl);
+            }}
+            label="Categories"
+          />
+        )}
       </div>
 
       {/* Insight chips — all based on real data calculations */}
@@ -1466,8 +1614,30 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
       <div className="stat-grid">
         <StatCard label="Total Dealers" value={myD.length} sub={`${active} active · ${inactive} inactive · ${dead} dead`} icon={Users}/>
         <StatCard label={`${selMoLabel} Target`} value={tt} sub="total units" icon={Target}/>
-        <StatCard label={`${selMoLabel} Achieved`} value={ta} sub={`${selMoFull} total`} valueColor="#34d399" icon={Award}/>
-        <StatCard label="Achievement" value={spct(tt,ta)} valueColor={pclr(ap)} progress={ap} icon={Activity}/>
+        <StatCard
+          label={`${selMoLabel} Achieved${catExcluded.size>0 ? ' (excl.)' : ''}`}
+          value={taAdj}
+          sub={catExcluded.size>0
+            ? `excludes ${[...catExcluded].join(', ')} (−${Number(filteredDelta).toLocaleString('en-IN')})`
+            : `${selMoFull} total`}
+          valueColor="#34d399" icon={Award}/>
+        <StatCard
+          label={`Achievement${catExcluded.size>0 ? ' (excl.)' : ''}`}
+          value={spct(tt, taAdj)}
+          valueColor={pclr(apAdj)}
+          progress={apAdj}
+          icon={Activity}/>
+      </div>
+
+      {/* ── Category-wise Sales overview (live from /api/sales) ────────────── */}
+      <div className="card" style={{marginBottom:16, padding:14}}>
+        <CategorySalesPanel
+          monthLabel={MO[selectedMonthIdx]}
+          excluded={catExcluded}
+          onToggleExcluded={toggleCatExcluded}
+          hideToggleChips
+          onSeeAll={() => onNavigate && onNavigate('salesCat')}
+        />
       </div>
 
       {/* Dealer quick search */}

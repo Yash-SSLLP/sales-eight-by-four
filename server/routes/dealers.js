@@ -223,6 +223,180 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
   }
 });
 
+// ── POST /api/dealers/delete-by-source — admin only ───────────────────────
+// Deletes every Dealer where `source` equals the value sent in the body.
+// Use this to undo a bad bulk-upload that mis-created dealers — e.g. the
+// category-wise Excel upload tags new dealers with source='cat-upload', so
+// posting { source:'cat-upload' } removes ONLY those, leaving your original
+// roster (source='sheet' / 'manual' / etc.) untouched.
+//
+// Before deleting, Sale rows that reference each removed dealer (by id OR by
+// name) are re-pointed at a same-named dealer in the surviving set if one
+// exists — so per-category sales history isn't lost.
+//
+// Body: { source:'cat-upload', dryRun:true|false }
+router.post('/delete-by-source', protect, adminOnly, async (req, res) => {
+  try {
+    const source = String(req.body?.source || '').trim();
+    if (!source) return res.status(400).json({ error: 'source required' });
+    const dryRun = req.body?.dryRun === true;
+
+    // Find dealers to delete + the surviving canonical set
+    const toDelete = await Dealer.find({ source }).lean();
+    const survivors = await Dealer.find({ source: { $ne: source } }, { name:1, salesman:1, _id:1 }).lean();
+    const survivorByLowerName = new Map();
+    for (const s of survivors) {
+      survivorByLowerName.set(String(s.name).toLowerCase().trim(), s);
+    }
+
+    let migrated = 0;
+    let Sale = null;
+    try { Sale = (await import('../models/Sale.js')).default; } catch {}
+
+    if (!dryRun && Sale && toDelete.length) {
+      for (const d of toDelete) {
+        const canon = survivorByLowerName.get(String(d.name).toLowerCase().trim());
+        if (!canon) continue;     // no canonical → leave sale rows by name; they'll still show in aggregates
+        const r = await Sale.updateMany(
+          { $or: [{ dealerId: d._id }, { dealerName: d.name }] },
+          { $set: { dealerName: canon.name, dealerId: canon._id } }
+        );
+        migrated += r.modifiedCount || 0;
+      }
+    }
+
+    let deleted = 0;
+    if (!dryRun && toDelete.length) {
+      const result = await Dealer.deleteMany({ source });
+      deleted = result.deletedCount || 0;
+    } else {
+      deleted = toDelete.length;
+    }
+
+    console.log(`[DELETE-BY-SOURCE] dryRun=${dryRun} source=${source} would-delete=${toDelete.length} migrated=${migrated} deleted=${deleted}`);
+    res.json({
+      ok: true,
+      dryRun,
+      source,
+      survivorCount: survivors.length,
+      candidatesFound: toDelete.length,
+      migrated,
+      deleted,
+      sample: toDelete.slice(0, 15).map(d => ({ id:String(d._id), name:d.name, salesman:d.salesman })),
+    });
+  } catch (e) {
+    console.error('[DELETE-BY-SOURCE]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/dealers/cleanup-suffix-dupes — admin only ───────────────────
+// Removes dealers whose name is "<canonical name> <salesman first name>"
+// (or "<canonical name>_<salesman first name>", etc.), where a canonical
+// shorter-named dealer with the same salesman already exists.
+//
+// Examples we'll catch:
+//   "76 EAST pranav"               → duplicate of "76 EAST"     (salesman: Pranav)
+//   "A AND M INTERIO LLP ratish"   → duplicate of "A AND M INTERIO LLP"
+//   "A C FRANCIS SONS rakesh"      → duplicate of "A C FRANCIS SONS"
+//
+// Sale rows belonging to the duplicate are migrated to the canonical dealer
+// first, then the duplicate is deleted.
+// Body: { dryRun:true|false }
+router.post('/cleanup-suffix-dupes', protect, adminOnly, async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun === true;
+
+    // Build a set of every salesman's first name (lower-cased)
+    let User;
+    try { User = (await import('../models/User.js')).default; } catch { User = null; }
+    const userDocs = User ? await User.find({}, { name:1, id:1 }).lean() : [];
+    const salesmanFirstNames = new Set();
+    for (const u of userDocs) {
+      const name = String(u.name || u.id || '').trim();
+      if (!name) continue;
+      const first = name.split(/\s+/)[0].toLowerCase();
+      if (first.length >= 2) salesmanFirstNames.add(first);
+    }
+    // Also pull salesman tokens straight off the dealer rows (covers cases
+    // where the user typed a name we don't have in the User collection).
+    const allDealers = await Dealer.find({}, { name:1, salesman:1, _id:1 }).lean();
+    for (const d of allDealers) {
+      const s = String(d.salesman || '').trim();
+      if (!s) continue;
+      const first = s.split(/\s+/)[0].toLowerCase();
+      if (first.length >= 2) salesmanFirstNames.add(first);
+    }
+
+    // Index dealers by (salesman, normalized-name) for quick lookup of the canonical row
+    const normalize = s => (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const bySalesAndName = new Map();
+    for (const d of allDealers) {
+      bySalesAndName.set((d.salesman || '__none') + '|' + normalize(d.name), d);
+    }
+
+    // Try to load the Sale model so we can migrate sales before deleting
+    let Sale = null;
+    try { Sale = (await import('../models/Sale.js')).default; } catch {}
+
+    const candidates = [];
+    for (const d of allDealers) {
+      const nameLow = String(d.name || '').toLowerCase().trim();
+      // skip if no trailing word
+      const parts = nameLow.split(/\s+/);
+      if (parts.length < 2) continue;
+      const lastWord = parts[parts.length - 1];
+
+      // Only treat the last word as a "salesman suffix" if it matches a known
+      // salesman first name AND a shorter canonical sibling exists.
+      if (!salesmanFirstNames.has(lastWord)) continue;
+
+      const shortName = parts.slice(0, -1).join(' ');
+      const canonical = bySalesAndName.get((d.salesman || '__none') + '|' + shortName);
+      if (!canonical || String(canonical._id) === String(d._id)) continue;
+
+      candidates.push({
+        dupeId:     String(d._id),
+        dupeName:   d.name,
+        canonical:  { id: String(canonical._id), name: canonical.name },
+        salesman:   d.salesman || '',
+      });
+    }
+
+    let migrated = 0, deleted = 0;
+    if (!dryRun) {
+      for (const c of candidates) {
+        // 1. Move any Sale rows from dupe → canonical (by id and by name).
+        if (Sale) {
+          const r = await Sale.updateMany(
+            { $or: [{ dealerId: c.dupeId }, { dealerName: c.dupeName }] },
+            { $set: { dealerName: c.canonical.name, dealerId: c.canonical.id } }
+          );
+          migrated += r.modifiedCount || 0;
+        }
+        // 2. Delete the duplicate dealer
+        await Dealer.findByIdAndDelete(c.dupeId);
+        deleted++;
+      }
+    }
+
+    console.log(`[CLEANUP-SUFFIX-DUPES] dryRun=${dryRun} found=${candidates.length} migrated=${migrated} deleted=${deleted}`);
+    res.json({
+      ok: true,
+      dryRun,
+      scanned: allDealers.length,
+      salesmanFirstNames: [...salesmanFirstNames],
+      found: candidates.length,
+      migrated,
+      deleted,
+      sample: candidates.slice(0, 15),
+    });
+  } catch (e) {
+    console.error('[CLEANUP-SUFFIX-DUPES]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── POST /api/dealers/dedupe — admin only ──────────────────────────────────
 // Finds dealers that have the same salesman + normalized name (case &
 // whitespace insensitive). For each duplicate group:

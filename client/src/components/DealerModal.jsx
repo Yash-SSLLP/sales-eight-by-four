@@ -8550,6 +8550,7 @@ import { MO as MO_CONST, CURRENT_MONTH_IDX, CURRENT_MONTH_SHORT } from '../const
 import { pct, spct, pclr, fcash, num, uid, isoNow, trendPct, forecast, monthTarget } from '../utils';
 import { api } from '../api';
 import SamplesTab from './SamplesTab';
+import CategorySalesPanel from './CategorySalesPanel';
 import { useMonth } from '../context';
 import { StatusBadge, Avatar, KPI } from './UI';
 import { downloadDealerCard, shareDealerCard } from './dealerCard';
@@ -8838,6 +8839,9 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
                 <button className={`tab ${tab==='outstanding'?'active':''}`} onClick={()=>setTab('outstanding')} style={{color:outRecord?.latestOutstanding>0?'#f87171':'inherit',position:'relative'}}>
             Outstanding & Follow-ups {outRecord?.latestOutstanding>0&&<span style={{background:'#f87171',color:'#fff',borderRadius:8,padding:'1px 6px',fontSize:10,marginLeft:4}}>₹{Number(outRecord.latestOutstanding).toLocaleString('en-IN')}</span>}
           </button>
+          <button className={`tab ${tab==='categories'?'active':''}`} onClick={()=>setTab('categories')}>
+            🏷️ Categories
+          </button>
         </div>
 
         {tab==='overview'&&(
@@ -9043,6 +9047,11 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
         )}
         {tab==='visits'&&(
           <DealerVisitsTab dealer={dealer}/>
+        )}
+        {tab==='categories'&&(
+          <div style={{padding:'4px 0'}}>
+            <CategorySalesPanel dealerName={dealer.name}/>
+          </div>
         )}
         {tab==='outstanding'&&(
           <div>

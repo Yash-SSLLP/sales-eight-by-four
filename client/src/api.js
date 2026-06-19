@@ -1730,6 +1730,25 @@ export const api = {
     body: JSON.stringify({ dryRun }),
   }).then(handle),
 
+  // Admin: find and remove dealers whose name = "<canonical> <salesman first name>"
+  // (e.g. "76 EAST pranav" when "76 EAST" already exists for salesman Pranav).
+  // Migrates Sale rows to the canonical dealer before deleting.
+  cleanupSuffixDupes: (dryRun=false) => fetch(`${BASE}/dealers/cleanup-suffix-dupes`,{
+    method:'POST',
+    headers:authHeaders(),
+    body: JSON.stringify({ dryRun }),
+  }).then(handle),
+
+  // Admin: delete every dealer with a given `source` (e.g. 'cat-upload' for
+  // dealers wrongly created by the category-wise Excel upload). Sale rows are
+  // re-pointed at canonical dealers (same name) first, then the duplicates
+  // are removed.
+  deleteDealersBySource: (source, dryRun=false) => fetch(`${BASE}/dealers/delete-by-source`,{
+    method:'POST',
+    headers:authHeaders(),
+    body: JSON.stringify({ source, dryRun }),
+  }).then(handle),
+
   // Superadmin: get a new JWT for the target user (impersonation).
   // The returned token has `impersonatedBy` claim so the UI can show a banner.
   impersonate: (targetUserId) => fetch(`${BASE}/auth/impersonate/${encodeURIComponent(targetUserId)}`,{
@@ -1861,6 +1880,59 @@ export const api = {
     headers:authHeaders(),
     body: JSON.stringify(body),
   }).then(handle),
+
+  // ── Category Type / Sub-Category (Product Type) management ────────────────
+  categoriesList:    ()          => fetch(`${BASE}/categories`,{headers:authHeaders()}).then(handle),
+  categoryCreate:    (body)      => fetch(`${BASE}/categories`,{method:'POST',headers:authHeaders(),body:JSON.stringify(body)}).then(handle),
+  categoryUpdate:    (id, body)  => fetch(`${BASE}/categories/${encodeURIComponent(id)}`,{method:'PUT',headers:authHeaders(),body:JSON.stringify(body)}).then(handle),
+  categoryDelete:    (id)        => fetch(`${BASE}/categories/${encodeURIComponent(id)}`,{method:'DELETE',headers:authHeaders()}).then(handle),
+  subCategoryAdd:    (id, name)  => fetch(`${BASE}/categories/${encodeURIComponent(id)}/sub`,{method:'POST',headers:authHeaders(),body:JSON.stringify({name})}).then(handle),
+  subCategoryUpdate: (id, subId, name) => fetch(`${BASE}/categories/${encodeURIComponent(id)}/sub/${encodeURIComponent(subId)}`,{method:'PUT',headers:authHeaders(),body:JSON.stringify({name})}).then(handle),
+  subCategoryDelete: (id, subId) => fetch(`${BASE}/categories/${encodeURIComponent(id)}/sub/${encodeURIComponent(subId)}`,{method:'DELETE',headers:authHeaders()}).then(handle),
+  categoriesSeed:    ()          => fetch(`${BASE}/categories/seed-defaults`,{method:'POST',headers:authHeaders()}).then(handle),
+
+  // ── Category-wise Sales (wide-format Excel upload + aggregations) ─────────
+  salesTemplateUrl: () => `${BASE}/sales/template`,   // GET with auth header — caller handles download
+  // Download the unified template.
+  //   opts.monthLabel — e.g. "Jun-26", pre-fills with current dealer data for that month
+  //   opts.salesman   — filter prefill to one salesman (admin per-salesman sheets)
+  //   opts.prefill    — explicit pre-fill flag (auto-on when monthLabel is given)
+  salesDownloadTemplate: async (opts={}) => {
+    const qs = new URLSearchParams();
+    if (opts.monthLabel) qs.set('monthLabel', opts.monthLabel);
+    if (opts.salesman)   qs.set('salesman',   opts.salesman);
+    if (opts.prefill)    qs.set('prefill',    '1');
+    const url = `${BASE}/sales/template${qs.toString() ? '?'+qs : ''}`;
+    const res = await fetch(url, { headers:{ Authorization:`Bearer ${getToken()}` } });
+    if(!res.ok) throw new Error(`Template download failed (${res.status})`);
+    const blob = await res.blob();
+    const bUrl = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = bUrl;
+    a.download = `Sales_Upload_Template${opts.monthLabel ? '_'+opts.monthLabel : ''}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(bUrl), 4000);
+  },
+  // Upload the unified Excel.
+  //   month       — YYYY-MM (required, normalised on the server)
+  //   monthLabel  — optional MO label like "Jun-26" so dealer.monthlyData also gets written
+  //   replace     — replace Sale rows for the month
+  salesUpload: (file, month, replace=true, monthLabel='') => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('month', month);
+    fd.append('replace', String(replace));
+    if (monthLabel) fd.append('monthLabel', monthLabel);
+    return fetch(`${BASE}/sales/upload`,{method:'POST',headers:{Authorization:`Bearer ${getToken()}`},body:fd}).then(handle);
+  },
+  salesMonths:       ()         => fetch(`${BASE}/sales/months`,{headers:authHeaders()}).then(handle),
+  salesByCategory:   (q={})     => fetch(`${BASE}/sales/by-category?${new URLSearchParams(q)}`,{headers:authHeaders()}).then(handle),
+  salesByDealer:     (q={})     => fetch(`${BASE}/sales/by-dealer?${new URLSearchParams(q)}`,{headers:authHeaders()}).then(handle),
+  salesBySalesman:   (q={})     => fetch(`${BASE}/sales/by-salesman?${new URLSearchParams(q)}`,{headers:authHeaders()}).then(handle),
+  salesForDealer:    (name)     => fetch(`${BASE}/sales/dealer/${encodeURIComponent(name)}`,{headers:authHeaders()}).then(handle),
+  // Raw Sale rows (paged). Used by trend charts that need cross-month data.
+  salesRaw:          (q={})     => fetch(`${BASE}/sales/raw?${new URLSearchParams(q)}`,{headers:authHeaders()}).then(handle),
+  salesDeleteMonth:  (m)        => fetch(`${BASE}/sales/month/${encodeURIComponent(m)}`,{method:'DELETE',headers:authHeaders()}).then(handle),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

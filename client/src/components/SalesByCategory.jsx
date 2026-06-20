@@ -3,6 +3,7 @@ import { Calendar, BarChart3, Users, User, Download, TrendingUp, RefreshCw, Tras
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
 import CategoryFilter from './CategoryFilter';
+import { useGlobalCategoryFilter } from '../hooks/useGlobalCategoryFilter';
 
 /**
  * SalesByCategory — three views over uploaded category-wise sales:
@@ -42,24 +43,9 @@ const SalesByCategory = ({ currentUser, dealers, onOpenDealer } = {}) => {
 
   const [search, setSearch] = useState('');
 
-  // Categories the user has toggled OFF (excluded from totals/pivots).
-  // Persisted so user's choice (e.g. "always exclude LINER") survives reloads.
-  const [excluded, setExcluded] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('stp_salescat_excluded')||'[]')); }
-    catch { return new Set(); }
-  });
-  const toggleExcluded = (cat) => {
-    setExcluded(prev => {
-      const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      try { localStorage.setItem('stp_salescat_excluded', JSON.stringify([...next])); } catch {}
-      return next;
-    });
-  };
-  const clearExcluded = () => {
-    setExcluded(new Set());
-    try { localStorage.removeItem('stp_salescat_excluded'); } catch {}
-  };
+  // Global filter — shared with Overview, Admin Panel, DealerModal etc.
+  const { excluded, toggle: toggleExcluded, clear: clearExcluded, set: setExcluded }
+    = useGlobalCategoryFilter();
 
   // Load distinct months once
   useEffect(() => {
@@ -273,9 +259,7 @@ const SalesByCategory = ({ currentUser, dealers, onOpenDealer } = {}) => {
             onToggle={toggleExcluded}
             onClear={clearExcluded}
             onSelectOnly={(cat)=>{
-              const newExcl = new Set(allCategories.filter(c=>c!==cat));
-              try { localStorage.setItem('stp_salescat_excluded', JSON.stringify([...newExcl])); } catch {}
-              setExcluded(newExcl);
+              setExcluded(new Set(allCategories.filter(c=>c!==cat)));
             }}
             label="Categories"
           />

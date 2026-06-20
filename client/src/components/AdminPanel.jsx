@@ -268,6 +268,8 @@ import { Avatar, KPI, StatCard } from './UI';
 import CategoryDrillChart from './CategoryDrillChart';
 import SampleMasterTab from './SampleMasterTab';
 import ManageCategories from './ManageCategories';
+import CategoryFilter from './CategoryFilter';
+import { useGlobalCategoryFilter } from '../hooks/useGlobalCategoryFilter';
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
 
@@ -335,9 +337,56 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
       setLaErr(e.message || 'Login-as failed');
     } finally { setLaBusy(false); }
   };
+  // ── Global category filter applied to this month's achieved per dealer ──
+  // Same logic Overview uses: pull dealer × category breakdown from /api/sales,
+  // subtract excluded categories' qty from each dealer's current-month achieved,
+  // then drive all KPIs / compare chart / per-salesman cards from that.
+  const g_cat = useGlobalCategoryFilter();
+  const [dealerCatMap, setDealerCatMap] = useState(new Map());
+  useEffect(() => {
+    const lbl = MO[selectedMonthIdx];
+    if (!lbl) { setDealerCatMap(new Map()); return; }
+    const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const m = /^([A-Za-z]{3,})-(\d{2,4})$/.exec(String(lbl).trim());
+    if (!m) { setDealerCatMap(new Map()); return; }
+    const mi = months.indexOf(m[1].slice(0,3).toLowerCase());
+    if (mi < 0) { setDealerCatMap(new Map()); return; }
+    let y = +m[2]; if (y < 100) y += 2000;
+    const ym = `${y}-${String(mi+1).padStart(2,'0')}`;
+    let cancelled = false;
+    api.salesByDealer({ month: ym })
+      .then(r => {
+        if (cancelled) return;
+        const map = new Map();
+        for (const row of (r.rows || [])) {
+          const perCat = {};
+          for (const [cat, subMap] of Object.entries(row.byCategory || {})) {
+            perCat[cat] = Object.values(subMap).reduce((s,v) => s + (v||0), 0);
+          }
+          map.set(String(row.dealer || '').toLowerCase().trim(), perCat);
+        }
+        setDealerCatMap(map);
+      })
+      .catch(() => { if (!cancelled) setDealerCatMap(new Map()); });
+    return () => { cancelled = true; };
+  }, [MO, selectedMonthIdx, g_cat.excluded.size]);
+
   // Smart per-month target — see utils.monthTarget. Uses month-specific target
   // if uploaded, falls back to global only for months that actually have sales.
-  const dealersForMonth=useMemo(()=>dealers.map(d=>({...d,achieved:d.months[selectedMonthIdx]||0,target:monthTarget(d, selectedMonthIdx)})),[dealers,selectedMonthIdx]);
+  const dealersForMonth=useMemo(()=>dealers.map(d=>{
+    const baseAch = d.months[selectedMonthIdx]||0;
+    let adjAch = baseAch;
+    if (g_cat.excluded.size > 0) {
+      const perCat = dealerCatMap.get(String(d.name||'').toLowerCase().trim());
+      if (perCat) {
+        let excl = 0;
+        for (const c of g_cat.excluded) excl += (perCat[c] || 0);
+        adjAch = Math.max(0, baseAch - excl);
+      }
+    }
+    return { ...d, achieved: adjAch, target: monthTarget(d, selectedMonthIdx) };
+  }),[dealers, selectedMonthIdx, g_cat.excluded, dealerCatMap]);
+
   const tt=dealersForMonth.reduce((s,x)=>s+x.target,0),ta=dealersForMonth.reduce((s,x)=>s+x.achieved,0);
   const active=dealersForMonth.filter(x=>['ACTIVE','ACHIVERS','KEY ACCOUNT'].includes((x.status||'').toUpperCase())).length;
   const compareData=sms.map(s=>{const sd=dealersForMonth.filter(d=>d.salesman===s.id);return{name:s.name,Target:sd.reduce((a,x)=>a+x.target,0),Achieved:sd.reduce((a,x)=>a+x.achieved,0),smId:s.id,color:s.color};});
@@ -432,6 +481,9 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
             </button>
           )}
 
+          {/* ── Global Category Filter ───────────────────────────────── */}
+          <AdminCategoryFilterButton dealers={dealers} selectedMonthIdx={selectedMonthIdx} MO={MO}/>
+
           {/* ── Sync sheets (admin & superadmin) ─────────────────────── */}
           <button onClick={onSync} className="btnp" style={{display:'flex',alignItems:'center',gap:8}} disabled={syncing}><RefreshCw size={13} className={syncing?'spin':''}/> {syncing?'Syncing...':'Sync Sheets'}</button>
         </div>
@@ -468,7 +520,15 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
             {sms.map(s=>{
               const sd=dealersForMonth.filter(d=>d.salesman===s.id);
               const st=sd.reduce((a,x)=>a+x.target,0),sa=sd.reduce((a,x)=>a+x.achieved,0),sp=pct(st,sa);
-              const mT=MO.map((_,i)=>dealers.filter(d=>d.salesman===s.id).reduce((a,d)=>a+(d.months[i]||0),0));
+              // Sparkline: raw monthly sums for every month EXCEPT the
+              // current one, which uses the filtered achieved so the bar
+              // height matches the KPI card above it.
+              const mT=MO.map((_,i)=>{
+                if (i === selectedMonthIdx) {
+                  return sd.reduce((a,x)=>a+x.achieved,0);
+                }
+                return dealers.filter(d=>d.salesman===s.id).reduce((a,d)=>a+(d.months[i]||0),0);
+              });
               return(
                 <div key={s.id} className="card" style={{borderColor:s.color+'44',cursor:'pointer',transition:'transform .15s'}}
                   onClick={()=>onNavigate('dealers',{sm:s.id})}
@@ -709,5 +769,51 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
     </div>
   );
 };
+
+/**
+ * AdminCategoryFilterButton — fetches category totals for the active month
+ * and wires the SHARED (global) include/exclude state to the dropdown.
+ * Toggling here updates the same state used by Overview, Sales by Category,
+ * the Dealer Modal, and the Category Drill chart.
+ */
+function AdminCategoryFilterButton({ dealers, selectedMonthIdx, MO }) {
+  const g = useGlobalCategoryFilter();
+  const [totals, setTotals] = useState([]);
+  const moLabel = MO && MO[selectedMonthIdx];
+
+  useEffect(() => {
+    if (!moLabel) { setTotals([]); return; }
+    const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const m = /^([A-Za-z]{3,})-(\d{2,4})$/.exec(String(moLabel).trim());
+    if (!m) { setTotals([]); return; }
+    const mi = months.indexOf(m[1].slice(0,3).toLowerCase());
+    if (mi < 0) { setTotals([]); return; }
+    let y = +m[2]; if (y < 100) y += 2000;
+    const ym = `${y}-${String(mi+1).padStart(2,'0')}`;
+    let cancelled = false;
+    api.salesByCategory({ month: ym })
+      .then(r => {
+        if (cancelled) return;
+        const map = new Map();
+        for (const row of (r.rows || [])) map.set(row.category, (map.get(row.category)||0) + (row.qty||0));
+        setTotals([...map.entries()].map(([category, total]) => ({ category, total })).sort((a,b) => b.total - a.total));
+      })
+      .catch(() => { if (!cancelled) setTotals([]); });
+    return () => { cancelled = true; };
+  }, [moLabel]);
+
+  if (totals.length === 0) return null;
+  return (
+    <CategoryFilter
+      categories={totals}
+      excluded={g.excluded}
+      onToggle={g.toggle}
+      onClear={g.clear}
+      onSelectOnly={(cat) => g.set(new Set(totals.map(t=>t.category).filter(c=>c!==cat)))}
+      label="Categories"
+      compact
+    />
+  );
+}
 
 export default AdminPanel;

@@ -15413,6 +15413,7 @@ import ManageMonths     from './components/ManageMonths';
 import ApiUrlSettings   from './components/ApiUrlSettings';
 import SalesUpload      from './components/SalesUpload';
 import SalesByCategory  from './components/SalesByCategory';
+import { useFilteredDealers } from './hooks/useFilteredDealers';
 
 // ── Cookie helpers ────────────────────────────────────────
 const COOKIE_KEY = 'stp_session';
@@ -15779,10 +15780,18 @@ export default function App(){
   // Staff = admin OR superadmin (both see all dealers/notes)
   const isStaff = currentUser?.role==='admin' || currentUser?.role==='superadmin';
 
+  // Apply the global category filter to the dealer set BEFORE per-user scoping.
+  // Every screen reads `dealer.months[currentMonthIdx]`; the hook substitutes
+  // that single value with (raw − excluded categories' qty for that dealer)
+  // so the whole app — All Dealers, Monthly Trend, Compare, MapView, Reports,
+  // Overview, AdminPanel, etc. — automatically reflects what's selected in the
+  // shared "Categories" dropdown.
+  const dealersGloballyFiltered = useFilteredDealers(dealers, selectedMonthIdx, activeMO?.[selectedMonthIdx]);
+
   const myDealers=useMemo(()=>{
     if(!currentUser)return[];
-    return isStaff?dealers:dealers.filter(d=>d.salesman===currentUser.id);
-  },[dealers,currentUser,isStaff]);
+    return isStaff?dealersGloballyFiltered:dealersGloballyFiltered.filter(d=>d.salesman===currentUser.id);
+  },[dealersGloballyFiltered,currentUser,isStaff]);
 
   const myNotes=useMemo(()=>{
     if(!currentUser)return[];

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, ArrowRight, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import CategoryFilter from './CategoryFilter';
+import { useGlobalCategoryFilter } from '../hooks/useGlobalCategoryFilter';
 
 /**
  * Two flavours of the same panel, used in three places:
@@ -50,35 +51,21 @@ const CategorySalesPanel = ({
   const [loading, setLoading] = useState(false);
   const [data, setData]       = useState(null);
 
-  // Per-panel excluded categories (uncontrolled mode). Persists in localStorage
-  // so user's choice sticks across page reloads.
-  const storageKey = `stp_cat_excluded_${dealerName ? 'dealer' : 'month'}`;
-  const [uncontrolledExcluded, setUncontrolledExcluded] = useState(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      return raw ? new Set(JSON.parse(raw)) : new Set();
-    } catch { return new Set(); }
-  });
+  // Default to the global shared filter when no parent supplies its own.
+  const global = useGlobalCategoryFilter();
   const isControlled = !!controlledExcluded;
-  const excluded = isControlled ? controlledExcluded : uncontrolledExcluded;
+  const excluded = isControlled ? controlledExcluded : global.excluded;
 
   const toggleExcluded = (cat) => {
     if (isControlled) { onToggleExcluded && onToggleExcluded(cat); return; }
-    setUncontrolledExcluded(prev => {
-      const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch {}
-      return next;
-    });
+    global.toggle(cat);
   };
   const clearExcluded = () => {
     if (isControlled) {
-      // Parent controls — turn off each excluded item via the same callback
       [...excluded].forEach(c => onToggleExcluded && onToggleExcluded(c));
       return;
     }
-    setUncontrolledExcluded(new Set());
-    try { localStorage.removeItem(storageKey); } catch {}
+    global.clear();
   };
 
   useEffect(() => {

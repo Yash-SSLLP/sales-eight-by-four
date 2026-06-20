@@ -8543,7 +8543,7 @@
 
 
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ComposedChart, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { X, Trash2, Save, Bell, CheckSquare, Square, MapPin, Camera, Share2, Plus, Check, Calendar } from 'lucide-react';
 import { MO as MO_CONST, CURRENT_MONTH_IDX, CURRENT_MONTH_SHORT } from '../constants';
@@ -8551,6 +8551,7 @@ import { pct, spct, pclr, fcash, num, uid, isoNow, trendPct, forecast, monthTarg
 import { api } from '../api';
 import SamplesTab from './SamplesTab';
 import CategorySalesPanel from './CategorySalesPanel';
+import CategoryFilter from './CategoryFilter';
 import { useMonth } from '../context';
 import { StatusBadge, Avatar, KPI } from './UI';
 import { downloadDealerCard, shareDealerCard } from './dealerCard';
@@ -8709,16 +8710,106 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
   const followups=dealerNotes.filter(n=>n.type==='followup');
   const regularNotes=dealerNotes.filter(n=>n.type!=='followup');
 
-  const viewAchieved=dealer.months[selectedMonthIdx]||0;
+  // ── Per-dealer category filter ─────────────────────────────────────────
+  // Fetch this dealer's category-wise history once. Drives an in-modal
+  // category/sub-category picker (separate from the global filter), so the
+  // KPIs + bar chart can be sliced to "only LAMINATE" or "only 1 MM".
+  const [dealerCatHistory, setDealerCatHistory] = useState(null);   // { months:[{month, byCategory:{cat:{sub:qty}}}] }
+  const [dCatSel, setDCatSel] = useState(new Set());   // selected categories (empty = ALL)
+  const [dSubSel, setDSubSel] = useState(new Set());   // selected sub-cats (empty = ALL within selected cats)
+  useEffect(() => {
+    if (!dealer?.name) return;
+    let cancelled = false;
+    api.salesForDealer(dealer.name)
+      .then(r => { if (!cancelled) setDealerCatHistory(r); })
+      .catch(() => { if (!cancelled) setDealerCatHistory(null); });
+    return () => { cancelled = true; };
+  }, [dealer?.name]);
+
+  // Distinct categories + sub-categories for this dealer (used to populate
+  // the in-modal filter dropdowns).
+  const dealerCats = useMemo(() => {
+    if (!dealerCatHistory) return [];
+    const set = new Set();
+    for (const m of (dealerCatHistory.months || [])) {
+      for (const c of Object.keys(m.byCategory || {})) set.add(c);
+    }
+    return [...set].sort();
+  }, [dealerCatHistory]);
+
+  const dealerSubs = useMemo(() => {
+    if (!dealerCatHistory) return [];
+    const set = new Set();
+    for (const m of (dealerCatHistory.months || [])) {
+      for (const [c, subs] of Object.entries(m.byCategory || {})) {
+        if (dCatSel.size > 0 && !dCatSel.has(c)) continue;
+        for (const s of Object.keys(subs || {})) set.add(s);
+      }
+    }
+    return [...set].sort();
+  }, [dealerCatHistory, dCatSel]);
+
+  // Per-month filtered achieved for THIS dealer. Map: "2026-06" → qty.
+  const filteredByYM = useMemo(() => {
+    const out = new Map();
+    if (!dealerCatHistory) return out;
+    for (const m of (dealerCatHistory.months || [])) {
+      let total = 0;
+      for (const [c, subs] of Object.entries(m.byCategory || {})) {
+        if (dCatSel.size > 0 && !dCatSel.has(c)) continue;
+        for (const [s, q] of Object.entries(subs || {})) {
+          if (dSubSel.size > 0 && !dSubSel.has(s)) continue;
+          total += (q || 0);
+        }
+      }
+      out.set(m.month, total);
+    }
+    return out;
+  }, [dealerCatHistory, dCatSel, dSubSel]);
+
+  // Helper: "Jun-26" → "2026-06"
+  const _ymOf = (lbl) => {
+    if (!lbl) return '';
+    const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const m = /^([A-Za-z]{3,})-(\d{2,4})$/.exec(String(lbl).trim());
+    if (!m) return '';
+    const mi = months.indexOf(m[1].slice(0,3).toLowerCase());
+    if (mi < 0) return '';
+    let y = +m[2]; if (y < 100) y += 2000;
+    return `${y}-${String(mi+1).padStart(2,'0')}`;
+  };
+
+  // Filter active when the user has picked any category OR any sub-category
+  const dFilterActive = dCatSel.size > 0 || dSubSel.size > 0;
+
+  // Build a months[] array that respects the in-modal filter when active.
+  // IMPORTANT: only the currently-SELECTED month is filtered. Past months
+  // keep their raw historical values so the user can still see the dealer's
+  // overall trend even when slicing the current month to "only LAMINATE".
+  // (Past months often have no category breakdown saved yet, so filtering
+  // them would zero out the entire history — confusing.)
+  const monthsForView = useMemo(() => {
+    if (!dFilterActive) return dealer.months;
+    return MO.map((lbl, i) => {
+      if (i !== selectedMonthIdx) {
+        return Number(dealer.months?.[i]) || 0;     // historical bar — untouched
+      }
+      const ym = _ymOf(lbl);
+      if (!ym) return Number(dealer.months?.[i]) || 0;
+      return filteredByYM.has(ym) ? (filteredByYM.get(ym) || 0) : 0;
+    });
+  }, [dFilterActive, dealer.months, MO, filteredByYM, selectedMonthIdx]);
+
+  const viewAchieved = monthsForView[selectedMonthIdx]||0;
   // Smart per-month target — see utils.monthTarget. Each month gets its own
   // target if uploaded; otherwise we fall back to the dealer's global target
   // ONLY for months that have actual sales (so historical Sheets data is OK).
   const viewTarget=monthTarget(dealer, selectedMonthIdx);
   const p=viewTarget?pct(viewTarget,viewAchieved):(viewAchieved>0?null:0);
-  const tp=trendPct(dealer.months);
-  const fc=forecast(dealer.months);
+  const tp=trendPct(monthsForView);
+  const fc=forecast(monthsForView);
 
-  const chartData=dealer.months.map((v,i)=>({
+  const chartData=monthsForView.map((v,i)=>({
     month:MO[i].slice(0,3),units:v,
     target:monthTarget(dealer, i) || null,
     isSelected:i===selectedMonthIdx
@@ -8866,10 +8957,71 @@ const DealerModal=({dealer,users,currentUser,onSave,onDelete,onClose,notes,onAdd
               {dealer.zone&&<KPI label="Zone" value={dealer.zone}/>}
             </div>
 
+            {/* ── In-modal category + sub-category filter ────────────── */}
+            {dealerCats.length > 0 && (
+              <div style={{
+                marginBottom:12, padding:'10px 12px',
+                background:'var(--bg1)', border:'1px solid var(--b1)', borderRadius:8,
+                display:'flex', flexWrap:'wrap', gap:10, alignItems:'center',
+              }}>
+                <span style={{fontSize:11,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em'}}>
+                  Show data for
+                </span>
+                <CategoryFilter
+                  categories={dealerCats}
+                  excluded={new Set(dealerCats.filter(c => !(dCatSel.size === 0 || dCatSel.has(c))))}
+                  onToggle={(c) => {
+                    setDCatSel(prev => {
+                      // Translate include/exclude UX from CategoryFilter (excluded) into our
+                      // "selected" semantic. If currently ALL (size 0), clicking c means
+                      // "exclude c" → select everything except c.
+                      const allCats = dealerCats;
+                      let cur = prev.size === 0 ? new Set(allCats) : new Set(prev);
+                      cur.has(c) ? cur.delete(c) : cur.add(c);
+                      // If everything is selected, collapse back to "ALL" sentinel
+                      if (cur.size === allCats.length) cur = new Set();
+                      return cur;
+                    });
+                    setDSubSel(new Set());   // reset sub-cat when cat changes
+                  }}
+                  onClear={() => { setDCatSel(new Set()); setDSubSel(new Set()); }}
+                  onSelectOnly={(c) => { setDCatSel(new Set([c])); setDSubSel(new Set()); }}
+                  label="Categories"
+                  compact
+                />
+                {dealerSubs.length > 1 && (
+                  <CategoryFilter
+                    categories={dealerSubs}
+                    excluded={new Set(dealerSubs.filter(s => !(dSubSel.size === 0 || dSubSel.has(s))))}
+                    onToggle={(s) => {
+                      setDSubSel(prev => {
+                        const allSubs = dealerSubs;
+                        let cur = prev.size === 0 ? new Set(allSubs) : new Set(prev);
+                        cur.has(s) ? cur.delete(s) : cur.add(s);
+                        if (cur.size === allSubs.length) cur = new Set();
+                        return cur;
+                      });
+                    }}
+                    onClear={() => setDSubSel(new Set())}
+                    onSelectOnly={(s) => setDSubSel(new Set([s]))}
+                    label="Sub-Categories"
+                    compact
+                  />
+                )}
+                {dFilterActive && (
+                  <span style={{fontSize:11, color:'#fbbf24', fontWeight:600}}>
+                    Showing only {[...(dCatSel.size?dCatSel:[])].join(', ')}
+                    {dSubSel.size > 0 && <> · {[...dSubSel].join(', ')}</>}
+                  </span>
+                )}
+              </div>
+            )}
+
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:8}}>
                 11-Month Performance {dealer.target>0&&<span style={{color:'#34d399',marginLeft:8}}>— dashed = target</span>}
                 {selectedMonthIdx!==CURRENT_MONTH_IDX&&<span style={{color:'#fbbf24',marginLeft:8}}>(yellow bar = selected: {MO[selectedMonthIdx]})</span>}
+                {dFilterActive && <span style={{color:'#fbbf24',marginLeft:8}}>· filtered</span>}
               </div>
               <ResponsiveContainer width="100%" height={220}>
                 <ComposedChart data={chartData} margin={{top:18,right:10,bottom:5,left:0}}>

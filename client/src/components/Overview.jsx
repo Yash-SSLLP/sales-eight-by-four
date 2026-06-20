@@ -1290,6 +1290,7 @@ import MapView from './MapView';
 import CategoryDrillChart from './CategoryDrillChart';
 import CategorySalesPanel from './CategorySalesPanel';
 import CategoryFilter from './CategoryFilter';
+import { useGlobalCategoryFilter } from '../hooks/useGlobalCategoryFilter';
 import { api } from '../api';
 
 // MO label like "Jun-26" → YYYY-MM ("2026-06") used by the Sales collection.
@@ -1353,48 +1354,22 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
       .sort((a,b) => b.total - a.total);
   }, [catRowsMo]);
 
-  const [catExcluded, setCatExcluded] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('stp_overview_cat_excluded')||'[]')); }
-    catch { return new Set(); }
-  });
-  const toggleCatExcluded = (cat) => {
-    setCatExcluded(prev => {
-      const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      try { localStorage.setItem('stp_overview_cat_excluded', JSON.stringify([...next])); } catch {}
-      return next;
-    });
-  };
-  const clearCatExcluded = () => {
-    setCatExcluded(new Set());
-    try { localStorage.removeItem('stp_overview_cat_excluded'); } catch {}
-  };
+  // Global filter shared with Sales by Category, Admin Panel, DealerModal etc.
+  const { excluded: catExcluded, toggle: toggleCatExcluded, clear: clearCatExcluded, set: setCatExcluded }
+    = useGlobalCategoryFilter();
   const excludedQty = useMemo(
     () => allCatTotals.filter(t => catExcluded.has(t.category)).reduce((s,t) => s + t.total, 0),
     [allCatTotals, catExcluded],
   );
 
-  const dealersForMonth=useMemo(()=>dealers.map(d=>{
-    const baseAch = d.months[selectedMonthIdx] || 0;
-    // When categories are excluded, subtract their qty from this dealer's
-    // current-month achieved. Falls back to the unfiltered achieved if no
-    // category data exists for this dealer (e.g. before any sales upload).
-    let adjAch = baseAch;
-    if (catExcluded.size > 0) {
-      const perCat = dealerCatMap.get(String(d.name||'').toLowerCase().trim());
-      if (perCat) {
-        let exclSum = 0;
-        for (const c of catExcluded) exclSum += (perCat[c] || 0);
-        adjAch = Math.max(0, baseAch - exclSum);
-      }
-    }
-    return {
-      ...d,
-      achieved: adjAch,
-      // Smart per-month target (see utils.monthTarget for full logic)
-      target: monthTarget(d, selectedMonthIdx),
-    };
-  }),[dealers,selectedMonthIdx,catExcluded,dealerCatMap]);
+  // `dealers` is already category-filtered by the App-level useFilteredDealers
+  // hook — it substituted dealer.months[currentMonthIdx] with the filtered
+  // achieved before this component ever saw it. So just read it straight.
+  const dealersForMonth=useMemo(()=>dealers.map(d=>({
+    ...d,
+    achieved: d.months[selectedMonthIdx] || 0,
+    target:   monthTarget(d, selectedMonthIdx),
+  })),[dealers,selectedMonthIdx]);
 
   const myD=dealersForMonth;
   const [overviewSearch,setOverviewSearch]=useState('');
@@ -1437,14 +1412,17 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   // dealersForMonth above), so summing it directly gives the correct filtered
   // total. Don't double-subtract excludedQty again.
   const ta=myD.reduce((s,x)=>s+x.achieved,0);
-  // For the "(−X)" sub-text on the KPI card, compute the delta from the
-  // raw (unfiltered) monthly achieved, so the displayed deduction matches
-  // exactly what we actually removed for the visible dealer set.
-  const rawAchievedSum = useMemo(
-    () => dealers.reduce((s,d) => s + (Number(d.months?.[selectedMonthIdx]) || 0), 0),
-    [dealers, selectedMonthIdx],
-  );
-  const filteredDelta = Math.max(0, rawAchievedSum - ta);
+  // For the "(−X)" sub-text on the KPI card, compute the delta directly from
+  // the per-dealer category map — sum of every excluded category's qty across
+  // all dealers. This is the exact amount removed from the visible total.
+  const filteredDelta = useMemo(() => {
+    if (!catExcluded || catExcluded.size === 0) return 0;
+    let sum = 0;
+    for (const perCat of dealerCatMap.values()) {
+      for (const c of catExcluded) sum += (perCat[c] || 0);
+    }
+    return sum;
+  }, [catExcluded, dealerCatMap]);
   const ap=pct(tt,ta);
   // Full status breakdown for territory overview
   const statusMap = {};
@@ -1482,21 +1460,8 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
   // achievement %, salesman performance — recompute from this filtered set
   // so they reflect "only the selected categories".
   const ci = selectedMonthIdx;
-  const dealersFiltered = useMemo(() => {
-    if (catExcluded.size === 0) return dealers;
-    return dealers.map(d => {
-      const perCat = dealerCatMap.get(String(d.name||'').toLowerCase().trim());
-      if (!perCat) return d;
-      let exclSum = 0;
-      for (const c of catExcluded) exclSum += (perCat[c] || 0);
-      if (!exclSum) return d;
-      const base = Number(d.months?.[ci]) || 0;
-      const adj = Math.max(0, base - exclSum);
-      const nextMonths = Array.isArray(d.months) ? d.months.slice() : [];
-      nextMonths[ci] = adj;
-      return { ...d, months: nextMonths };
-    });
-  }, [dealers, catExcluded, dealerCatMap, ci]);
+  // `dealers` is already category-filtered upstream — alias for clarity.
+  const dealersFiltered = dealers;
 
   const risingList    = dealersFiltered.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) > 30);
   const decliningList = dealersFiltered.filter(x => hasAnyData(x.months) && monthlyTrend(x.months) < -20);
@@ -1591,9 +1556,7 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
             onClear={clearCatExcluded}
             onSelectOnly={(cat)=>{
               // include only the selected category — exclude everything else
-              const newExcl = new Set(allCatTotals.map(t=>t.category).filter(c=>c!==cat));
-              try { localStorage.setItem('stp_overview_cat_excluded', JSON.stringify([...newExcl])); } catch {}
-              setCatExcluded(newExcl);
+              setCatExcluded(new Set(allCatTotals.map(t=>t.category).filter(c=>c!==cat)));
             }}
             label="Categories"
           />

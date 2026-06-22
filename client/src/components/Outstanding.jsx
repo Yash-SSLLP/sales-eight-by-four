@@ -5654,9 +5654,24 @@ const daysUntil= d => Math.ceil((new Date(d) - new Date().setHours(0,0,0,0)) / 8
 // clicking a specific month-amount cell — the modal then highlights that
 // month and pre-fills the amount field with that month's value (instead of
 // the dealer's latest outstanding).
+// Preset reasons shown in the dropdown. Picking "Others" reveals the free-text
+// comment box so the salesman can type anything that doesn't fit a preset.
+const FOLLOWUP_REASONS = [
+  'Payment Collected',
+  'Follow-up Required / Funds Not Available',
+  'Invoice / Material Dispute',
+  'Credit Note Issue',
+  'Dealer is not Genuine',
+  'Dealer Not Available',
+  'Postponed the Payment Date',
+  'Ledger Statement',
+  'Others',
+];
+
 function FollowupModal({ dealer, existingFollowups, onClose, onSaved, prefillMonth, prefillAmount }) {
   const [date,    setDate]    = useState(todayStr());
-  const [comment, setComment] = useState('');
+  const [reason,  setReason]  = useState('');     // preset reason from dropdown
+  const [comment, setComment] = useState('');     // free-text note (only when reason === 'Others' or as add-on)
   const [amount,  setAmount]  = useState(
     typeof prefillAmount === 'number' ? prefillAmount : (dealer.latestOutstanding||0)
   );
@@ -5671,18 +5686,39 @@ function FollowupModal({ dealer, existingFollowups, onClose, onSaved, prefillMon
 
   const handleAdd = async (type='followup') => {
     if(type==='followup' && !date){ setErr('Date required'); return; }
+    // For follow-up entries: require either a preset reason or a comment when
+    // "Others" is chosen. (no-pickup still gets through with no reason.)
+    if (type === 'followup') {
+      if (!reason) { setErr('Pick a reason'); return; }
+      if (reason === 'Others' && !(comment || '').trim()) {
+        setErr('Add a note for the "Others" reason'); return;
+      }
+    }
     setSaving(true); setErr('');
     try {
-      const text = (comment || '').trim();
+      const note = (comment || '').trim();
+      // Compose the final saved comment: "<Reason>" or "<Reason> — <note>"
+      // so the history strip in this modal shows the reason clearly.
+      let saved = '';
+      if (type === 'no-pickup') {
+        saved = '📵 Did not pick call' + (note ? ` — ${note}` : '');
+      } else if (reason === 'Others') {
+        saved = note;                              // "Others" is just the note text
+      } else if (reason) {
+        saved = note ? `${reason} — ${note}` : reason;
+      } else {
+        saved = note;
+      }
       await api.addFollowup({
         dealerName:   dealer.name,
         salesman:     dealer.matchedSalesman?.id || '',
         amount:       Number(amount)||0,
         followupDate: type==='no-pickup' ? todayStr() : date,
-        comment:      type==='no-pickup' ? '📵 Did not pick call' + (text?` — ${text}`:'') : text,
+        comment:      saved,
         type,
+        reason:       type === 'followup' ? reason : '',
       });
-      setDate(todayStr()); setComment(''); setAmount(dealer.latestOutstanding||0);
+      setDate(todayStr()); setReason(''); setComment(''); setAmount(dealer.latestOutstanding||0);
       onSaved();
     } catch(e){ setErr(e.message); }
     setSaving(false);
@@ -5785,13 +5821,32 @@ function FollowupModal({ dealer, existingFollowups, onClose, onSaved, prefillMon
             </div>
           </div>
 
-          {/* Main comment */}
+          {/* Reason dropdown — required. Picking "Others" reveals the
+              free-text comment box for a custom note. */}
           <div style={{marginBottom:8}}>
-            <label style={{fontSize:10,color:'var(--t3)',display:'block',marginBottom:4,textTransform:'uppercase'}}>Comment</label>
-            <VoiceTextarea value={comment} onChange={setComment}
-              placeholder="e.g. Will pay after 15th, cheque promised… (tap 🎤 to speak)"
-              rows={2}/>
+            <label style={{fontSize:10,color:'var(--t3)',display:'block',marginBottom:4,textTransform:'uppercase'}}>
+              Reason {reason && <span style={{color:'var(--acc)'}}>· {reason}</span>}
+            </label>
+            <select className="inp" value={reason} onChange={e=>setReason(e.target.value)}
+              style={{width:'100%'}}>
+              <option value="">— Select reason —</option>
+              {FOLLOWUP_REASONS.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
           </div>
+
+          {/* Free-text note — shown ONLY when reason is "Others" */}
+          {reason === 'Others' && (
+            <div style={{marginBottom:8}}>
+              <label style={{fontSize:10,color:'var(--t3)',display:'block',marginBottom:4,textTransform:'uppercase'}}>
+                Note <span style={{color:'#f87171'}}>*</span>
+              </label>
+              <VoiceTextarea value={comment} onChange={setComment}
+                placeholder="Describe the reason… (tap 🎤 to speak)"
+                rows={2}/>
+            </div>
+          )}
 
           {err&&<div style={{fontSize:11,color:'#f87171',marginBottom:8}}>{err}</div>}
 

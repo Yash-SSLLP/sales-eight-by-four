@@ -471,6 +471,20 @@ function fmtClock(d){
   return new Date(d).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
 }
 
+// Preset reasons shown in the "Purpose of Visit" dropdown — required at
+// check-in so every visit has a recorded objective.
+const VISIT_PURPOSES = [
+  'Business Approach',
+  'Sample Submission',
+  'Order Follow Up',
+  'Payment Follow Up',
+  'Cheque Collection',
+  'New Dealer Meet',
+  'Service / Product Issue',
+  'App Installation',
+  'Presentation',
+];
+
 export function VisitsPage({ dealers, users, currentUser }){
   const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
 
@@ -480,6 +494,12 @@ export function VisitsPage({ dealers, users, currentUser }){
   const [ciDealer, setCiDealer] = useState('');
   const [ciNote,   setCiNote]   = useState('');
   const [ciBusy,   setCiBusy]   = useState(false);
+  // "New Dealer" mode — when user picks the special "+ New Dealer" pill, we
+  // switch the dealer field into a free-text input and tag the visit with
+  // isNewDealer:true so it's easy to spot in history/reports.
+  const [ciNewDealerMode, setCiNewDealerMode] = useState(false);
+  // Purpose of Visit — required preset reason for every check-in.
+  const [ciPurpose, setCiPurpose] = useState('');
 
   // Check-out form state (per active visit)
   const [coPhoto, setCoPhoto] = useState('');
@@ -563,24 +583,36 @@ export function VisitsPage({ dealers, users, currentUser }){
   }, 0);
 
   const checkIn = async () => {
-    if(!ciDealer.trim()){ notify.error('Party / Dealer name required'); return; }
+    if(!ciDealer.trim()){
+      notify.error(ciNewDealerMode ? 'Type the new dealer name' : 'Party / Dealer name required');
+      return;
+    }
+    if(!ciPurpose){ notify.error('Pick a Purpose of Visit'); return; }
     if(!ciPhoto){ notify.error('Capture a check-in photo first'); return; }
     setCiBusy(true);
-    const match = (dealers || []).find(d => (d.name||'').toUpperCase().trim() === ciDealer.toUpperCase().trim());
+    // If user is logging a brand-new dealer, there's no match — keep dealerId empty.
+    const match = ciNewDealerMode
+      ? null
+      : (dealers || []).find(d => (d.name||'').toUpperCase().trim() === ciDealer.toUpperCase().trim());
     try {
       await api.visitsCreate({
-        dealerId: match?.id || '',
+        dealerId:   match?.id || '',
         dealerName: ciDealer.trim(),
-        note:  ciNote,
-        photo: ciPhoto,
-        lat:   ciLoc.lat,
-        lng:   ciLoc.lng,
-        address: ciLoc.address || '',
-        city:    ciLoc.city    || '',
-        state:   ciLoc.state   || '',
+        isNewDealer: ciNewDealerMode || !match,
+        purpose:    ciPurpose,
+        // Prepend purpose to the note so existing CSV exports/history strips
+        // see the reason inline too.
+        note:       ciNote ? `[${ciPurpose}] ${ciNote}` : `[${ciPurpose}]`,
+        photo:      ciPhoto,
+        lat:        ciLoc.lat,
+        lng:        ciLoc.lng,
+        address:    ciLoc.address || '',
+        city:       ciLoc.city    || '',
+        state:      ciLoc.state   || '',
       });
       notify.success('Checked in — visit started');
-      setCiDealer(''); setCiNote(''); setCiPhoto('');
+      setCiDealer(''); setCiNote(''); setCiPhoto(''); setCiPurpose('');
+      setCiNewDealerMode(false);
       load();
     } catch(e){ notify.error('Check-in: ' + e.message); }
     setCiBusy(false);
@@ -720,17 +752,62 @@ export function VisitsPage({ dealers, users, currentUser }){
                 </div>
               </div>
             )}
-            <input className="inp" list="crm-dealer-list" placeholder="Party / Dealer name"
-              value={ciDealer} onChange={e=>setCiDealer(e.target.value)}/>
-            <datalist id="crm-dealer-list">
-              {myDealerOptions.map(n => <option key={n} value={n}/>)}
-            </datalist>
+            {/* Existing-dealer vs New-dealer toggle. New-dealer mode swaps the
+                autocomplete input for a plain text box so salesman can type
+                a name that isn't in the roster yet. */}
+            <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+              <button type="button"
+                onClick={()=>{ setCiNewDealerMode(false); setCiDealer(''); }}
+                style={{
+                  flex:1, minWidth:140,
+                  padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer',
+                  background: !ciNewDealerMode ? 'rgba(99,102,241,.15)' : 'var(--bg2)',
+                  border: '1px solid ' + (!ciNewDealerMode ? 'var(--acc)' : 'var(--b2)'),
+                  color: !ciNewDealerMode ? 'var(--acc)' : 'var(--t2)',
+                }}>
+                Existing Dealer
+              </button>
+              <button type="button"
+                onClick={()=>{ setCiNewDealerMode(true); setCiDealer(''); }}
+                style={{
+                  flex:1, minWidth:140,
+                  padding:'7px 12px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer',
+                  background: ciNewDealerMode ? 'rgba(251,191,36,.15)' : 'var(--bg2)',
+                  border: '1px solid ' + (ciNewDealerMode ? '#fbbf24' : 'var(--b2)'),
+                  color: ciNewDealerMode ? '#fbbf24' : 'var(--t2)',
+                }}>
+                + New Dealer
+              </button>
+            </div>
+
+            {ciNewDealerMode ? (
+              <input className="inp" placeholder="Type new dealer / party name"
+                value={ciDealer} onChange={e=>setCiDealer(e.target.value)} autoFocus/>
+            ) : (
+              <>
+                <input className="inp" list="crm-dealer-list" placeholder="Party / Dealer name"
+                  value={ciDealer} onChange={e=>setCiDealer(e.target.value)}/>
+                <datalist id="crm-dealer-list">
+                  {myDealerOptions.map(n => <option key={n} value={n}/>)}
+                </datalist>
+              </>
+            )}
+
+            {/* Purpose of Visit — required */}
+            <select className="inp" value={ciPurpose} onChange={e=>setCiPurpose(e.target.value)}>
+              <option value="">— Purpose of Visit —</option>
+              {VISIT_PURPOSES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+
             <VoiceTextarea placeholder="Quick note (optional)"
               value={ciNote} onChange={setCiNote} rows={3}/>
             <div className="crm-row">
               <PhotoCapture photo={ciPhoto} setPhoto={setCiPhoto} label="Take check-in photo"/>
               <LocationCapture loc={ciLoc} setLoc={setCiLoc}/>
-              <button onClick={checkIn} disabled={ciBusy || !ciDealer.trim() || !ciPhoto} className="btnp"
+              <button onClick={checkIn}
+                disabled={ciBusy || !ciDealer.trim() || !ciPurpose || !ciPhoto}
+                className="btnp"
+                title={!ciPurpose ? 'Pick a Purpose of Visit' : ''}
                 style={{display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6}}>
                 <IconIn size={13}/> {ciBusy ? 'Saving…' : 'Check in'}
               </button>

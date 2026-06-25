@@ -754,6 +754,65 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
     }
   };
 
+  // ── Merge name-variant duplicate dealers ──────────────────────────────
+  // This is the FIX for "upload created 1300 duplicates because the Excel
+  // had names without spaces" (e.g. "76EAST" in Excel vs "76 EAST" in DB).
+  // Non-destructive: it keeps the OLDER dealer (with its full history) and
+  // re-points the new upload's sale rows + merges the upload's monthlyData
+  // into the original before deleting the duplicate.
+  const handleMergeNameVariants = async () => {
+    // Quick dry-run preview first so the user sees what's about to happen
+    setCatBusy(true); setCatMsg(null);
+    let preview;
+    try {
+      preview = await api.dedupeStripped(true);
+    } catch (e) {
+      setCatBusy(false);
+      setCatMsg({ type:'error', text: `Preview failed: ${e.message}` });
+      return;
+    }
+    setCatBusy(false);
+
+    if (!preview.duplicatesRemoved) {
+      setCatMsg({ type:'success', text:'No name-variant duplicates found — your dealer list is already clean.' });
+      return;
+    }
+
+    const ok = await confirmDialog({
+      title: `Merge ${preview.duplicatesRemoved} duplicate dealer${preview.duplicatesRemoved===1?'':'s'}?`,
+      message: [
+        `Found ${preview.groupsFound} groups of dealers whose names differ only by spaces or punctuation`,
+        `(e.g. "1000 Kitchens Interiors" and "1000KITCHENSINTERIORS").`,
+        ``,
+        `For each group, the ORIGINAL dealer is kept and the upload-created duplicate is merged in:`,
+        `  • All its sale rows are re-pointed to the original dealer`,
+        `  • Any new monthly data (Target / Achieved) is copied over`,
+        `  • Then the duplicate dealer record is deleted`,
+        ``,
+        `${preview.duplicatesRemoved} duplicate dealer record${preview.duplicatesRemoved===1?'':'s'} will be removed.`,
+        `No sale data is lost.`,
+      ].join('\n'),
+      confirmText: `Yes, merge ${preview.duplicatesRemoved} duplicates`,
+      cancelText: 'Cancel',
+      danger: false,
+    });
+    if (!ok) return;
+
+    setCatBusy(true);
+    try {
+      const r = await api.dedupeStripped(false);
+      setCatMsg({
+        type:'success',
+        text: `Done. Merged ${r.duplicatesRemoved} duplicate dealers across ${r.groupsFound} groups. Sale rows migrated: ${r.salesMigrated}.`,
+      });
+      if (onSaved) onSaved();
+    } catch(e) {
+      setCatMsg({ type:'error', text:`Merge failed: ${e.message}` });
+    } finally {
+      setCatBusy(false);
+    }
+  };
+
   const handleCatFileChosen = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = ''; // allow re-uploading the same file
@@ -1106,6 +1165,18 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
               {catBusy && !catTplBusy
                 ? <><div style={{width:11,height:11,border:'2px solid currentColor',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .7s linear infinite'}}/> Uploading…</>
                 : <><Upload size={13}/> Upload Filled Excel</>}
+            </button>
+            <button onClick={handleMergeNameVariants} disabled={catBusy}
+              title="Merge dealers whose names differ only by spaces or punctuation (e.g. '76 EAST' and '76EAST') — sale rows are preserved. Use this AFTER an upload that created duplicates."
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                color:'#fde68a',
+                background:'rgba(251,191,36,0.10)',
+                border:'1px solid rgba(251,191,36,0.45)',
+                padding:'8px 12px', borderRadius:6, fontSize:11, fontWeight:700,
+                cursor: catBusy ? 'not-allowed' : 'pointer', opacity: catBusy ? 0.6 : 1,
+              }}>
+              Merge name-variant dupes
             </button>
             <button onClick={handleCatDeleteMonth} disabled={catBusy}
               title={`Wipe ${month}: category sales + per-dealer target/achieved/status + duplicate dealers (so you can re-upload cleanly)`}

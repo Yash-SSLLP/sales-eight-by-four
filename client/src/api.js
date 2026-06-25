@@ -1650,8 +1650,9 @@ export const api = {
   health: () => fetch(`${BASE}/health`,{ signal:AbortSignal.timeout(3000) }).then(handle).catch(()=>null),
 
   login:    (id,pass) => fetch(`${BASE}/auth/login`,{method:'POST',headers:authHeaders(),body:JSON.stringify({id,pass})}).then(handle),
-  getUsers: ()        => fetch(`${BASE}/auth/users`,{headers:authHeaders()}).then(handle),
-  updateUser:(id,d)   => fetch(`${BASE}/auth/users/${id}`,{method:'PUT',headers:authHeaders(),body:JSON.stringify(d)}).then(handle),
+  getUsers:    ()      => fetch(`${BASE}/auth/users`,{headers:authHeaders()}).then(handle),
+  getUsersAll: ()      => fetch(`${BASE}/auth/users?includeInactive=1`,{headers:authHeaders()}).then(handle),
+  updateUser:  (id,d)  => fetch(`${BASE}/auth/users/${id}`,{method:'PUT',headers:authHeaders(),body:JSON.stringify(d)}).then(handle),
 
   getDealers:   (MO=[]) => fetch(`${BASE}/dealers?mo=${MO.join(',')}`,{headers:authHeaders()}).then(handle),
   createDealer: (d)     => fetch(`${BASE}/dealers`,{method:'POST',headers:authHeaders(),body:JSON.stringify(d)}).then(handle),
@@ -1725,6 +1726,18 @@ export const api = {
   // Admin: find and remove duplicate dealers (same salesman + same name).
   // dryRun=true returns a preview without deleting anything.
   dedupeDealers: (dryRun=false) => fetch(`${BASE}/dealers/dedupe`,{
+    method:'POST',
+    headers:authHeaders(),
+    body: JSON.stringify({ dryRun }),
+  }).then(handle),
+
+  // Admin: aggressive dedupe — collapses dealers whose names differ only by
+  // spaces or punctuation (e.g. "1000 Kitchens Interiors" vs
+  // "1000KITCHENSINTERIORS"). Use after an upload created bulk duplicates
+  // because the Excel exported names without spaces. Sale rows + missing
+  // monthlyData entries are migrated to the canonical (older, non-upload)
+  // dealer before the dupe is deleted.
+  dedupeStripped: (dryRun=false) => fetch(`${BASE}/dealers/dedupe-stripped`,{
     method:'POST',
     headers:authHeaders(),
     body: JSON.stringify({ dryRun }),

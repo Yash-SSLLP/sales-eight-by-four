@@ -96,11 +96,19 @@ router.get('/template', protect, async (req, res) => {
   // NOTE: legacy "Category Type" + "Sub Category" columns were removed —
   // those single-value dealer fields are replaced by the proper multi-category
   // taxonomy where one dealer sells across many sub-categories.
+  //
+  // The FIRST column is "Dealer ID" — a hidden-ish stable handle that the
+  // upload uses as the canonical identifier. As long as this cell is left
+  // alone, the user can edit Dealer Name, Salesman, City, etc. and the
+  // upload will UPDATE the same dealer in place (no more duplicates from
+  // renaming or reassigning). New rows leave Dealer ID blank — the parser
+  // falls back to (name|salesman) lookup-or-create for those.
   const DEALER_HEADERS = [
+    'Dealer ID',
     'Dealer Name', 'Salesman', 'City', 'State', 'Zone', 'Status',
     'Target', 'Credit Days', 'Credit Limit',
   ];
-  const N_DEALER = DEALER_HEADERS.length;   // 9
+  const N_DEALER = DEALER_HEADERS.length;   // 10
 
   const wb = XLSX.utils.book_new();
 
@@ -115,14 +123,18 @@ router.get('/template', protect, async (req, res) => {
     ['  Row 2 = Field names (Dealer Name, Salesman, City, …, 0.92 LAM, 1 MM, …, Grand Total)'],
     ['  Row 3+ = ONE row per dealer.'],
     [''],
-    ['Columns A–K = dealer info (Salesman, City, State, Zone, Status, Category Type, Sub Category, Target, Credit Days, Credit Limit).'],
-    ['Columns L+  = quantity sold per sub-category (Product Type). Leave blank or 0 if none.'],
+    ['Column A = Dealer ID — HIDDEN. DO NOT EDIT or DELETE these values.'],
+    ['  This is how the system finds the existing dealer when you change Name, Salesman or any other field.'],
+    ['  Leave blank only when ADDING a brand-new dealer at the bottom.'],
+    ['Columns B–J = dealer info (Dealer Name, Salesman, City, State, Zone, Status, Target, Credit Days, Credit Limit).'],
+    ['Columns K+  = quantity sold per sub-category (Product Type). Leave blank or 0 if none.'],
     ['Grand Total column auto-calculates from the sub-category cells.'],
     [''],
     ['On upload:'],
-    ['  1. Dealer master fields (City, State, Zone, Status, Category, Credit) are updated.'],
-    ['  2. Per-month numbers (Target, Achieved=Grand Total, Status, Zone, City, State, Category, Credit) are written to monthly data for the picked month.'],
-    ['  3. Category-wise sale rows are created from the sub-category cells.'],
+    ['  1. If Dealer ID is filled, the dealer is UPDATED in place — including any Name or Salesman change.'],
+    ['  2. Dealer master fields (City, State, Zone, Status, Target, Credit) are updated.'],
+    ['  3. Per-month numbers (Target, Achieved=Grand Total, Status, Zone, City, State, Credit) are written to monthly data for the picked month.'],
+    ['  4. Category-wise sale rows are created from the sub-category cells.'],
     [''],
     ['Re-uploading the same month replaces that month\'s category sales cleanly.'],
     ['New categories/sub-categories added in Admin Panel → Categories show up next time you download this template.'],
@@ -179,6 +191,7 @@ router.get('/template', protect, async (req, res) => {
         return q ? Number(q) : '';
       });
       aoa.push([
+        String(d._id || ''),                // Dealer ID — DO NOT EDIT
         d.name || '',
         d.salesman || '',
         md.city || d.city || '',
@@ -219,6 +232,7 @@ router.get('/template', protect, async (req, res) => {
 
   // Column widths
   ws['!cols'] = [
+    { wch: 8, hidden: true },  // Dealer ID — hidden so users don't fiddle with it
     { wch: 36 },  // Dealer Name
     { wch: 22 },  // Salesman
     { wch: 16 },  // City
@@ -252,8 +266,8 @@ router.get('/template', protect, async (req, res) => {
   }
   ws['!merges'] = merges;
 
-  // Freeze the header rows + the Dealer Name column so it's easy to scroll
-  ws['!freeze'] = { xSplit: '1', ySplit: '2' };
+  // Freeze the header rows + the Dealer ID + Dealer Name cols so it's easy to scroll
+  ws['!freeze'] = { xSplit: '2', ySplit: '2' };
 
   XLSX.utils.book_append_sheet(wb, ws, 'Sales Data');
 
@@ -333,11 +347,17 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
     // ───────────────────────────────────────────────────────────────
     // Legacy "Category Type" / "Sub Category" columns are explicitly IGNORED.
     // The new system derives all category info from the sub-category cells.
+    // First pass — does the sheet have an explicit "Dealer ID" header?
+    // If so, the 'dealer' role must be picked up by NAME match only, not by
+    // the legacy "first column is the dealer" fallback.
+    const hasDealerIdCol = headerCols.some(h => /^dealer\s*id$/i.test(String(h || '').trim()));
+
     const colInfo = headerCols.map((label, idx) => {
       const v = String(label || '').trim();
       const lv = v.toLowerCase();
       let role = 'ignore';
-      if (idx === 0 || /^(company\s*name|dealer\s*name|dealer)$/i.test(v)) role = 'dealer';
+      if (/^dealer\s*id$/i.test(v))                                         role = 'dealerid';
+      else if ((!hasDealerIdCol && idx === 0) || /^(company\s*name|dealer\s*name|dealer)$/i.test(v)) role = 'dealer';
       else if (/^(sales\s*person|salesman)$/i.test(v))                     role = 'salesman';
       else if (/^city$/i.test(v))                                           role = 'city';
       else if (/^state$/i.test(v))                                          role = 'state';
@@ -372,13 +392,27 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
     // monthlyData[label] would wipe sibling fields and per-row target writes
     // couldn't compare against the prior value.
     const knownDealers = await Dealer.find({}).lean();
-    const dealerByNameSm = new Map();
-    const dealerByLower  = new Map();
+    const dealerByNameSm   = new Map();
+    const dealerByLower    = new Map();
+    const dealerById       = new Map();   // _id string → dealer doc (lean)
+    // Stripped maps — lowercase + every non-alphanumeric char removed.
+    // Catches the classic dupe scenario where the upload's name is
+    // "1000KITCHENSINTERIORS" but the DB stored "1000 Kitchens Interiors".
+    const stripKey = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const dealerByStrippedSm = new Map();
+    const dealerByStripped   = new Map();
     for (const d of knownDealers) {
       const nm = String(d.name || '').trim().toLowerCase();
       const sm = String(d.salesman || '').trim().toLowerCase();
       dealerByNameSm.set(`${nm}|${sm}`, d);
       if (!dealerByLower.has(nm)) dealerByLower.set(nm, d);
+      dealerById.set(String(d._id), d);
+      const snm = stripKey(d.name);
+      const ssm = stripKey(d.salesman);
+      if (snm) {
+        dealerByStrippedSm.set(`${snm}|${ssm}`, d);
+        if (!dealerByStripped.has(snm)) dealerByStripped.set(snm, d);
+      }
     }
 
     if (replace) {
@@ -449,13 +483,41 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
       if (hasCell('creditDays')  && numCell('creditDays')  !== null) masterFields.creditDays  = numCell('creditDays');
       if (hasCell('creditLimit') && numCell('creditLimit') !== null) masterFields.creditLimit = numCell('creditLimit');
 
-      // Resolve dealer doc — prefer EXACT (name + salesman) match so we don't
-      // collapse two dealers that share a name across different salesmen.
+      // ── Resolve dealer doc ────────────────────────────────────────────
+      // Priority order (so editing Name or Salesman never creates a dupe):
+      //   1. Explicit "Dealer ID" cell (the hidden column the template pre-
+      //      fills with the dealer's _id). Bullet-proof — even if the user
+      //      changes both name and salesman, this still finds the original.
+      //   2. Exact (name|salesman) match from the existing roster.
+      //   3. Name-only match if the row has no salesman, OR exactly one
+      //      dealer with that name exists in the DB (treat as "moved
+      //      between salesmen").
+      //   4. Truly new dealer → create.
+      const rowDealerId = String(get(row, 'dealerid') || '').trim();
       const nmLow = dealerName.toLowerCase();
       const smLow = String(salesman || '').trim().toLowerCase();
-      let dealerDoc = smLow
-        ? dealerByNameSm.get(`${nmLow}|${smLow}`)     // exact match wins
-        : dealerByLower.get(nmLow);                   // name-only fallback if no salesman in row
+      // Stripped keys for fuzzy fallback (handles "1000KITCHENSINTERIORS"
+      // vs "1000 Kitchens Interiors" — both strip to the same key).
+      const nmStr = stripKey(dealerName);
+      const smStr = stripKey(salesman);
+      let dealerDoc =
+            (rowDealerId && dealerById.get(rowDealerId))
+         || (smLow ? dealerByNameSm.get(`${nmLow}|${smLow}`) : null)
+         || (!smLow ? dealerByLower.get(nmLow) : null)
+         || (smStr ? dealerByStrippedSm.get(`${nmStr}|${smStr}`) : null)
+         || (nmStr ? dealerByStripped.get(nmStr) : null)
+         || dealerByLower.get(nmLow);   // last-ditch single-name match
+
+      // If we matched by ID but the user CHANGED the name or salesman, queue
+      // those changes into masterFields so they propagate to Mongo.
+      if (rowDealerId && dealerDoc) {
+        if (dealerName && dealerName !== dealerDoc.name) {
+          masterFields.name = dealerName;
+        }
+        if (salesman && salesman !== dealerDoc.salesman) {
+          masterFields.salesman = salesman;
+        }
+      }
 
       if (!dealerDoc) {
         // Truly new dealer for this (name + salesman) combination. Try to
@@ -471,6 +533,7 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
             });
             dealerByNameSm.set(`${nmLow}|${smLow}`, created);
             if (!dealerByLower.has(nmLow)) dealerByLower.set(nmLow, created);
+            dealerById.set(String(created._id), created);
             dealerDoc = created;
             dealersCreated++;
           } catch (err) {
@@ -479,6 +542,7 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
               dealerDoc = await Dealer.findOne({ name: dealerName, salesman });
               if (dealerDoc) {
                 dealerByNameSm.set(`${nmLow}|${smLow}`, dealerDoc);
+                dealerById.set(String(dealerDoc._id), dealerDoc);
               } else {
                 unmatchedDealers.add(dealerName);
                 console.warn('[sales/upload] 11000 but no doc found for', dealerName, salesman);
@@ -497,15 +561,17 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
         // masterFields only contains keys whose cell was non-empty, so an
         // explicit 0 (e.g. Target reset) is preserved here — we just don't
         // overwrite when the value already matches.
+        //
+        // When the row carried a Dealer ID, masterFields may also include
+        // `name` and `salesman` (the user renamed / reassigned the party).
+        // Those are applied here too. If the new (name, salesman) pair
+        // collides with another existing dealer, Mongo's unique index
+        // throws E11000 — we catch it and skip the row so the upload as a
+        // whole doesn't blow up.
         const updates = {};
         for (const [k, v] of Object.entries(masterFields)) {
           if (dealerDoc[k] !== v) updates[k] = v;
         }
-        // NOTE: we deliberately do NOT overwrite an existing dealer's
-        // salesman from the upload. If the Excel row's salesman differs,
-        // it would create a new dealer above. Overwriting here is dangerous
-        // because it can violate the unique { name, salesman } index when
-        // another dealer already owns (name, new-salesman).
 
         // Per-month write (only when monthLabel was provided)
         if (monthLabel) {
@@ -532,10 +598,31 @@ router.post('/upload', protect, adminOnly, upload.single('file'), async (req, re
         }
 
         if (Object.keys(updates).length) {
-          await Dealer.updateOne({ _id: dealerDoc._id }, { $set: updates });
-          // Refresh in-memory copy so subsequent rows for same dealer see latest
-          Object.assign(dealerDoc, updates);
-          dealersUpdated++;
+          try {
+            await Dealer.updateOne({ _id: dealerDoc._id }, { $set: updates });
+            // Refresh in-memory copy + lookup maps so subsequent rows for
+            // the same dealer see the latest values (esp. after rename).
+            const prevNm = String(dealerDoc.name || '').trim().toLowerCase();
+            const prevSm = String(dealerDoc.salesman || '').trim().toLowerCase();
+            dealerByNameSm.delete(`${prevNm}|${prevSm}`);
+            Object.assign(dealerDoc, updates);
+            const newNm = String(dealerDoc.name || '').trim().toLowerCase();
+            const newSm = String(dealerDoc.salesman || '').trim().toLowerCase();
+            dealerByNameSm.set(`${newNm}|${newSm}`, dealerDoc);
+            if (newNm) dealerByLower.set(newNm, dealerDoc);
+            dealersUpdated++;
+          } catch (err) {
+            if (err && err.code === 11000) {
+              // Rename collided with an existing (name, salesman) pair —
+              // skip the master-field part of this row but still write the
+              // category sales below. Surface the conflict to the user via
+              // unmatchedDealers so they see something went wrong.
+              unmatchedDealers.add(dealerName + ' (rename conflict — another dealer already owns the new name/salesman pair)');
+              console.warn('[sales/upload] rename conflict for', dealerDoc.name, '→', updates.name, '/', updates.salesman);
+            } else {
+              throw err;
+            }
+          }
         }
       }
 

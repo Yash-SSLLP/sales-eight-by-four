@@ -280,25 +280,27 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
       }
       const totalAch = Object.values(e.perCategory).reduce((s,v) => s + v, 0);
 
-      // per-category target lookup
+      // Per-category target lookup. The MTD Sales Summary's Total Target is
+      // built ONLY from values entered in this table (the inline inputs),
+      // NOT from dealer.monthlyData. That keeps Monthly Entry's per-dealer
+      // targets independent and lets this view be the single source of
+      // truth for "salesman × category" volume targets.
       const perCatTarget = {};
       let totalPerCatTarget = 0;
       for (const c of categories) {
         const t = catTargets.get(`${e.smId}|${c}`) || 0;
         if (t > 0) { perCatTarget[c] = t; totalPerCatTarget += t; }
       }
-      // Use sum of per-category targets when any exist, else dealer total
-      const effectiveTarget = totalPerCatTarget > 0 ? totalPerCatTarget : e.target;
 
       return {
         ...e,
         region,
         totalAch,
-        target: effectiveTarget,
-        dealerTargetSum: e.target,        // raw dealer-level total (for reference)
-        perCatTarget,                     // { catName: target }
+        target: totalPerCatTarget,         // sum of per-cat targets ONLY
+        dealerTargetSum: e.target,         // raw dealer-level total (kept for reference)
+        perCatTarget,                      // { catName: target }
         billedDealerCount: e.dealersWithSales.size,
-        achievementPct: effectiveTarget > 0 ? Math.round(totalAch / effectiveTarget * 100) : null,
+        achievementPct: totalPerCatTarget > 0 ? Math.round(totalAch / totalPerCatTarget * 100) : null,
       };
     }).filter(e => e.smName !== '_none' && e.smName !== '_unknown')
       .sort((a,b) => (a.region || '').localeCompare(b.region || '') || (b.totalAch - a.totalAch));

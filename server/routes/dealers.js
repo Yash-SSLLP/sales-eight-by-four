@@ -473,6 +473,151 @@ router.post('/dedupe', protect, adminOnly, async (req, res) => {
   }
 });
 
+// ── POST /api/dealers/dedupe-stripped — admin only ─────────────────────────
+// Like /dedupe, but with much more aggressive name normalization: lowercase
+// + strip EVERY non-alphanumeric character. This catches duplicates where
+// the names differ only by spaces / punctuation, e.g. "1000 KITCHENS
+// INTERIORS" vs "1000KITCHENSINTERIORS" (a classic outcome of uploading an
+// Excel whose names were exported without spaces).
+//
+// For each group:
+//   1. Sort: dealers whose source is NOT 'cat-upload' come first (we want
+//      to keep the ORIGINAL, pre-upload dealer as canonical), then by most
+//      monthlyData, then most recent updatedAt.
+//   2. Migrate every Sale row from each duplicate to the canonical.
+//   3. Merge monthlyData — copy a month from a duplicate only when the
+//      canonical's entry is missing OR is empty (achieved + target == 0).
+//   4. Delete the duplicates.
+//
+// Body: { dryRun:true|false }
+router.post('/dedupe-stripped', protect, adminOnly, async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun === true;
+    const all = await Dealer.find({});
+    // Aggressive normalization — collapses spaces, punctuation, case
+    const strip = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Group by (salesman, stripped-name). Same name across different
+    // salesmen stays as separate groups (that's a legitimate cross-rep
+    // scenario, not a duplicate).
+    const groups = new Map();
+    for (const d of all) {
+      const key = strip(d.salesman) + '|' + strip(d.name);
+      if (!key.endsWith('|')) {
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(d);
+      }
+    }
+
+    // Try to load Sale model for migration
+    let Sale = null;
+    try { Sale = (await import('../models/Sale.js')).default; } catch {}
+
+    let groupsFound = 0;
+    let duplicatesRemoved = 0;
+    let salesMigrated = 0;
+    const sample = [];
+
+    for (const [key, grp] of groups) {
+      if (grp.length <= 1) continue;
+      groupsFound++;
+      // Prefer dealers whose source is NOT 'cat-upload' (the originals),
+      // then those with the most months of history, then most recent updates.
+      grp.sort((a, b) => {
+        const aUpload = a.source === 'cat-upload' ? 1 : 0;
+        const bUpload = b.source === 'cat-upload' ? 1 : 0;
+        if (aUpload !== bUpload) return aUpload - bUpload;
+        const aCount = a.monthlyData ? (a.monthlyData.size ?? Object.keys(a.monthlyData || {}).length) : 0;
+        const bCount = b.monthlyData ? (b.monthlyData.size ?? Object.keys(b.monthlyData || {}).length) : 0;
+        if (aCount !== bCount) return bCount - aCount;
+        return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+      });
+      const canonical = grp[0];
+      const dupes = grp.slice(1);
+
+      if (sample.length < 12) {
+        sample.push({
+          salesman: canonical.salesman,
+          keptName: canonical.name,
+          keptId: String(canonical._id),
+          keptSource: canonical.source,
+          removed: dupes.map(d => ({
+            id: String(d._id),
+            name: d.name,
+            source: d.source,
+            monthsCount: d.monthlyData ? (d.monthlyData.size ?? Object.keys(d.monthlyData || {}).length) : 0,
+          })),
+        });
+      }
+
+      if (!dryRun) {
+        // 1. Migrate Sale rows from every dupe → canonical
+        if (Sale) {
+          const dupeIds   = dupes.map(d => String(d._id));
+          const dupeNames = dupes.map(d => d.name);
+          const r = await Sale.updateMany(
+            { $or: [
+              { dealerId: { $in: dupeIds } },
+              { dealerName: { $in: dupeNames } },
+            ] },
+            { $set: { dealerName: canonical.name, dealerId: String(canonical._id) } }
+          );
+          salesMigrated += r.modifiedCount || 0;
+        }
+
+        // 2. Merge monthlyData — accept the duplicate's value only when the
+        // canonical doesn't have one or its entry is empty.
+        let canonicalModified = false;
+        const canonicalIsMap = canonical.monthlyData instanceof Map;
+        const cmGet = k => canonicalIsMap ? canonical.monthlyData.get(k) : canonical.monthlyData?.[k];
+        const cmSet = (k, v) => {
+          if (canonicalIsMap) canonical.monthlyData.set(k, v);
+          else { canonical.monthlyData = canonical.monthlyData || {}; canonical.monthlyData[k] = v; }
+        };
+        const isEmpty = e => !e || (((Number(e.achieved)||0) + (Number(e.target)||0)) === 0);
+
+        for (const dup of dupes) {
+          const dm = dup.monthlyData;
+          if (!dm) continue;
+          const entries = dm instanceof Map ? [...dm.entries()] : Object.entries(dm);
+          for (const [m, entry] of entries) {
+            const existing = cmGet(m);
+            if (!existing || isEmpty(existing)) {
+              cmSet(m, entry);
+              canonicalModified = true;
+            }
+          }
+        }
+        if (canonicalModified) {
+          canonical.markModified('monthlyData');
+          await canonical.save();
+        }
+
+        // 3. Delete duplicates
+        for (const dup of dupes) {
+          await Dealer.findByIdAndDelete(dup._id);
+          duplicatesRemoved++;
+        }
+      } else {
+        duplicatesRemoved += dupes.length;
+      }
+    }
+
+    console.log(`[DEDUPE-STRIPPED] dryRun=${dryRun} dealersScanned=${all.length} groupsFound=${groupsFound} duplicatesRemoved=${duplicatesRemoved} salesMigrated=${salesMigrated}`);
+    res.json({
+      ok: true,
+      dryRun,
+      dealersScanned: all.length,
+      groupsFound,
+      duplicatesRemoved,
+      salesMigrated,
+      sample,
+    });
+  } catch (e) {
+    console.error('[DEDUPE-STRIPPED]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── DELETE /api/dealers/month/:label — admin only (DESTRUCTIVE) ────────────
 // Removes the monthlyData entry for the given label (e.g., "Jun-26") from
 // EVERY dealer. Use this when removing a future/empty month so that re-adding

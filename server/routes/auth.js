@@ -30,12 +30,19 @@ router.post('/login', async (req, res) => {
   const user = await User.findOne({ id });
   if(!user) return res.status(401).json({ error:'User not found' });
   if(user.pass !== pass) return res.status(401).json({ error:'Wrong password' });
+  // Soft-disable: inactive users can't sign in, but their data stays in the DB.
+  if(user.active === false) return res.status(403).json({ error:'This account is inactive. Ask an admin to re-activate it.' });
   res.json(buildLoginResponse(user));
 });
 
-// GET /api/auth/users — get all users (no passwords)
+// GET /api/auth/users — get users (no passwords)
+// By default, returns ONLY active users (so login dropdowns, salesman
+// pickers etc. don't show de-activated accounts). UserManagement calls
+// with ?includeInactive=1 so admins can still see and re-activate them.
 router.get('/users', async (req, res) => {
-  const users = await User.find({}, '-pass -__v');
+  const includeInactive = String(req.query.includeInactive || '') === '1';
+  const filter = includeInactive ? {} : { active: { $ne: false } };
+  const users = await User.find(filter, '-pass -__v');
   const map = {};
   users.forEach(u => { const o=u.toObject(); delete o._id; map[o.id]=o; });
   res.json(map);
@@ -66,14 +73,14 @@ router.put('/users/:id', protect, async (req, res) => {
   // Authorize the edit
   let allowed = [];
   if(isSuperAdmin){
-    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role','approver'];
+    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role','approver','active'];
   } else if(isAdmin){
     if(isSelf) {
       // editing own profile
       allowed = ['url','url2','url_outstanding','pass','name','color','ini'];
     } else if(target.role === 'salesman') {
-      // admin editing a salesman
-      allowed = ['url','url2','url_outstanding','pass','name','color','ini','approver'];
+      // admin editing a salesman — can also activate / deactivate
+      allowed = ['url','url2','url_outstanding','pass','name','color','ini','approver','active'];
     } else {
       return res.status(403).json({ error:'Admins cannot edit other admins or superadmins' });
     }

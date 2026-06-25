@@ -16,5 +16,9 @@ const S = new mongoose.Schema({
   // CRM: id of the user (manager / admin) who reviews this salesman's leaves
   // and visits. Empty = any admin/superadmin can approve.
   approver:        { type:String, default:'' },
+  // Soft-disable. When false, the user can't log in and is hidden from
+  // search / dropdowns, but their historic records (visits, leads, sales
+  // entries, dealers) remain intact in the DB.
+  active:          { type:Boolean, default:true },
 }, { timestamps:true });
 export default mongoose.models.User || mongoose.model('User', S);

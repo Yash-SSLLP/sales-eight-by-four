@@ -1,12 +1,24 @@
-import React, { useState } from 'react';
-import { X, UserPlus, LogIn, KeyRound, Link as LinkIcon, Trash2, Shield, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, UserPlus, LogIn, KeyRound, Link as LinkIcon, Trash2, Shield, ShieldCheck, Power, PowerOff } from 'lucide-react';
 import { Avatar } from './UI';
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
 
 // Note: `setUsers` updates the client-side users map; `onLoginAs(token, user, impersonatedBy?)`
 // is used by the superadmin "Login as" feature to swap the active JWT.
+//
+// `users` (prop) is the app-wide map of ACTIVE users (the rest of the app only
+// ever sees active users). For this admin screen we also need to see and
+// re-activate INACTIVE users, so we fetch a separate `allUsers` map via
+// `api.getUsersAll()` on mount and on every change.
 const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUsersChanged }) => {
+  // Full user map including inactive — used for display in this modal only.
+  const [allUsers, setAllUsers] = useState(users || {});
+  const refreshAll = async () => {
+    try { setAllUsers(await api.getUsersAll()); }
+    catch(e) { /* fall back to active-only map already in state */ }
+  };
+  useEffect(() => { refreshAll(); }, []);
   const [name,    setName]    = useState('');
   const [id,      setId]      = useState('');
   const [pass,    setPass]    = useState('');
@@ -28,7 +40,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     const idC = id.trim().toLowerCase().replace(/\s+/g, '_');
     if(!name || !idC || !pass){ flash('error','Name, username and password required'); return; }
     if(pass.length < 4){ flash('error','Password min 4 characters'); return; }
-    if(users[idC]){ flash('error','Username already exists'); return; }
+    if(allUsers[idC]){ flash('error','Username already exists'); return; }
     if(!isSuperAdmin && (role === 'admin' || role === 'superadmin')){
       flash('error', 'Only superadmin can create admins or superadmins');
       return;
@@ -38,10 +50,12 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
       const ini = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
       const newUser = await api.createUser({ id: idC, name, pass, role, color, ini });
       // Optimistically update local cache for instant feedback…
-      setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null } });
+      setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true } });
+      setAllUsers({ ...allUsers, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true } });
       // …then trigger a server-side refresh so the new user appears with all
       // server-side fields and persists across page reloads + other devices.
       onUsersChanged?.();
+      refreshAll();
       setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman');
       flash('success', 'Created ' + name + ' (' + idC + '). Password: ' + pass);
     } catch(e){
@@ -51,56 +65,94 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
 
   // ── Edit a user (password, URL) ─────────────────────────────────────────
   const reset = async (uid) => {
-    const np = prompt('New password for ' + users[uid]?.name + ':');
+    const np = prompt('New password for ' + allUsers[uid]?.name + ':');
     if(!np || np.length < 4){ if(np !== null) notify.error('Password must be at least 4 characters'); return; }
     try {
       await api.updateUser(uid, { pass: np });
       setUsers({ ...users, [uid]: { ...users[uid], pass: np } });
+      setAllUsers({ ...allUsers, [uid]: { ...allUsers[uid], pass: np } });
       onUsersChanged?.();
-      flash('success', 'Password updated for ' + users[uid]?.name);
+      flash('success', 'Password updated for ' + allUsers[uid]?.name);
     } catch(e){ flash('error', 'Reset failed: ' + e.message); }
   };
 
   const editUrl = async (uid) => {
-    const np = prompt('Sheet CSV URL for ' + users[uid]?.name + ' (blank to remove):', users[uid]?.url || '');
+    const np = prompt('Sheet CSV URL for ' + allUsers[uid]?.name + ' (blank to remove):', allUsers[uid]?.url || '');
     if(np === null) return;
     try {
       await api.updateUser(uid, { url: np.trim() || null });
       setUsers({ ...users, [uid]: { ...users[uid], url: np.trim() || null } });
+      setAllUsers({ ...allUsers, [uid]: { ...allUsers[uid], url: np.trim() || null } });
       onUsersChanged?.();
       flash('success', 'Sheet URL updated');
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
+  // ── Toggle active / inactive (soft disable) ────────────────────────────
+  // Inactive users can't log in and don't appear in salesman dropdowns or
+  // search, but all their historic data (sales, visits, leads, dealers)
+  // stays untouched in the DB.
+  const toggleActive = async (uid) => {
+    const u = allUsers[uid]; if(!u) return;
+    const becomingActive = u.active === false;
+    if(uid === currentUser?.id && !becomingActive){
+      flash('error', "Can't deactivate yourself"); return;
+    }
+    const ok = await confirmDialog({
+      title: (becomingActive ? 'Re-activate ' : 'Deactivate ') + (u.name || uid) + '?',
+      message: becomingActive
+        ? 'They will be able to log in again and appear in salesman dropdowns and search.'
+        : 'They will not be able to log in and will be hidden from dropdowns and search. No data will be deleted — you can re-activate them at any time.',
+      confirmText: becomingActive ? 'Re-activate' : 'Deactivate',
+      danger: !becomingActive,
+    });
+    if(!ok) return;
+    try {
+      await api.updateUser(uid, { active: becomingActive });
+      setAllUsers({ ...allUsers, [uid]: { ...u, active: becomingActive } });
+      // Parent's `users` map only contains active users — add/remove there too
+      if(becomingActive){
+        setUsers({ ...users, [uid]: { ...u, active: true } });
+      } else {
+        const next = { ...users }; delete next[uid]; setUsers(next);
+      }
+      onUsersChanged?.();
+      flash('success', (becomingActive ? 'Re-activated ' : 'Deactivated ') + (u.name || uid));
+    } catch(e){ flash('error', (becomingActive ? 'Activate' : 'Deactivate') + ' failed: ' + e.message); }
+  };
+
   // ── Assign / change leave approver ──────────────────────────────────────
   const editApprover = async (uid) => {
-    const current = users[uid]?.approver || '';
-    const list = Object.values(users)
-      .filter(u => u.id !== uid && (u.role === 'admin' || u.role === 'superadmin'))
+    const current = allUsers[uid]?.approver || '';
+    // Approver pool = ACTIVE admins/superadmins only (don't suggest disabled ones)
+    const list = Object.values(allUsers)
+      .filter(u => u.id !== uid && u.active !== false && (u.role === 'admin' || u.role === 'superadmin'))
       .map(u => `${u.id} — ${u.name}`);
     const ap = prompt(
-      'Leave / visit approver for ' + (users[uid]?.name || uid) + ' — type the user id (blank = any admin can approve):\n\nAvailable:\n' + list.join('\n'),
+      'Leave / visit approver for ' + (allUsers[uid]?.name || uid) + ' — type the user id (blank = any admin can approve):\n\nAvailable:\n' + list.join('\n'),
       current,
     );
     if(ap === null) return;
     const trimmed = ap.trim();
-    if(trimmed && !users[trimmed]){ flash('error', 'No user with id "' + trimmed + '"'); return; }
+    if(trimmed && !allUsers[trimmed]){ flash('error', 'No user with id "' + trimmed + '"'); return; }
     try {
       await api.updateUser(uid, { approver: trimmed });
       setUsers({ ...users, [uid]: { ...users[uid], approver: trimmed } });
+      setAllUsers({ ...allUsers, [uid]: { ...allUsers[uid], approver: trimmed } });
       onUsersChanged?.();
-      flash('success', trimmed ? ('Approver set to ' + (users[trimmed]?.name || trimmed)) : 'Approver cleared');
+      flash('success', trimmed ? ('Approver set to ' + (allUsers[trimmed]?.name || trimmed)) : 'Approver cleared');
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
   // ── Remove user ─────────────────────────────────────────────────────────
   const remove = async (uid) => {
     if(uid === currentUser?.id){ flash('error', "Can't delete yourself"); return; }
-    const okRm = await confirmDialog({ title:'Remove ' + (users[uid]?.name || 'user') + '?', message:'This cannot be undone.', confirmText:'Remove', danger:true });
+    const okRm = await confirmDialog({ title:'Remove ' + (allUsers[uid]?.name || 'user') + '?', message:'This cannot be undone. Their historic records will remain in the DB but the login will be gone for good. (Use Deactivate instead if you might re-enable them later.)', confirmText:'Remove', danger:true });
     if(!okRm) return;
     try {
       await api.deleteUser(uid);
       const u = { ...users }; delete u[uid]; setUsers(u);
+      const a = { ...allUsers }; delete a[uid]; setAllUsers(a);
       onUsersChanged?.();
       flash('success', 'Removed ' + uid);
     } catch(e){ flash('error', 'Delete failed: ' + e.message); }
@@ -111,9 +163,9 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     if(!isSuperAdmin) return;
     if(uid === currentUser?.id) return;
     const okLA = await confirmDialog({
-      title: 'Login as ' + (users[uid]?.name || 'user') + '?',
+      title: 'Login as ' + (allUsers[uid]?.name || 'user') + '?',
       message: 'You will see exactly what they see. Use the banner at the top to return to your account at any time.',
-      confirmText: 'Login as ' + (users[uid]?.name || 'user'),
+      confirmText: 'Login as ' + (allUsers[uid]?.name || 'user'),
     });
     if(!okLA) return;
     try {
@@ -140,8 +192,12 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
         { v:'salesman', label:'Salesman' },
       ];
 
-  // Group users for clearer display
-  const sorted = Object.values(users || {}).sort((a, b) => {
+  // Group users for clearer display — show ACTIVE first, then INACTIVE at the
+  // bottom (so admins always see who's currently disabled).
+  const sorted = Object.values(allUsers || {}).sort((a, b) => {
+    const aA = a.active !== false ? 0 : 1;
+    const bA = b.active !== false ? 0 : 1;
+    if(aA !== bA) return aA - bA;
     const order = { superadmin: 0, admin: 1, salesman: 2 };
     const aR = order[a.role] ?? 3, bR = order[b.role] ?? 3;
     if(aR !== bR) return aR - bR;
@@ -200,10 +256,11 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                 display:'flex', alignItems:'center', gap:10,
                 padding:'10px 12px', background:'var(--bg2)', borderRadius:8,
                 border: isSelf ? '1px solid var(--acc)' : '1px solid transparent',
+                opacity: u.active === false ? 0.55 : 1,
               }}>
                 <Avatar user={u} size={32}/>
                 <div style={{flex:1, minWidth:0}}>
-                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                  <div style={{display:'flex', alignItems:'center', gap:6, flexWrap:'wrap'}}>
                     <div style={{fontSize:13, fontWeight:600}}>{u.name}</div>
                     <span style={{
                       fontSize:9, fontWeight:700, padding:'1px 6px', borderRadius:3,
@@ -212,13 +269,22 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                     }}>
                       {RoleIcon && <RoleIcon size={9}/>} {rb.label}
                     </span>
+                    {u.active === false && (
+                      <span style={{
+                        fontSize:9, fontWeight:700, padding:'1px 6px', borderRadius:3,
+                        background:'rgba(248,113,113,0.12)', color:'#fca5a5',
+                        display:'inline-flex', alignItems:'center', gap:3,
+                      }}>
+                        <PowerOff size={9}/> INACTIVE
+                      </span>
+                    )}
                     {isSelf && <span style={{fontSize:9, color:'var(--t3)'}}>(you)</span>}
                   </div>
                   <div style={{fontSize:10, color:'var(--t3)', marginTop:2}}>
                     {u.id} · {u.url ? <span style={{color:'#34d399'}}>Sheet ✓</span> : <span style={{color:'var(--t3)'}}>No sheet</span>}
                     {u.role === 'salesman' && (
                       <> · Approver: <span style={{color: u.approver ? '#a5b4fc' : '#fbbf24'}}>
-                        {u.approver ? (users[u.approver]?.name || u.approver) : 'any admin'}
+                        {u.approver ? (allUsers[u.approver]?.name || u.approver) : 'any admin'}
                       </span></>
                     )}
                   </div>
@@ -250,7 +316,34 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                       </button>
                     )}
                     {!isSelf && (
-                      <button className="btnd" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>remove(u.id)} title="Remove user">
+                      u.active === false ? (
+                        <button
+                          onClick={()=>toggleActive(u.id)}
+                          title="Re-activate user"
+                          style={{
+                            display:'inline-flex', alignItems:'center', gap:4,
+                            background:'rgba(34,197,94,0.12)', color:'#86efac',
+                            border:'1px solid rgba(34,197,94,0.35)',
+                            padding:'4px 8px', borderRadius:5, fontSize:11, fontWeight:700, cursor:'pointer',
+                          }}>
+                          <Power size={11}/> Activate
+                        </button>
+                      ) : (
+                        <button
+                          onClick={()=>toggleActive(u.id)}
+                          title="Deactivate user (soft-disable; data preserved)"
+                          style={{
+                            display:'inline-flex', alignItems:'center', gap:4,
+                            background:'rgba(251,191,36,0.10)', color:'#fbbf24',
+                            border:'1px solid rgba(251,191,36,0.35)',
+                            padding:'4px 8px', borderRadius:5, fontSize:11, fontWeight:700, cursor:'pointer',
+                          }}>
+                          <PowerOff size={11}/>
+                        </button>
+                      )
+                    )}
+                    {!isSelf && (
+                      <button className="btnd" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>remove(u.id)} title="Remove user (permanent)">
                         <Trash2 size={11}/>
                       </button>
                     )}

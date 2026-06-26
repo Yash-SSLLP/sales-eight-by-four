@@ -681,8 +681,19 @@ function monthFilter(req) {
   const f = {};
   if (req.query.month) f.month = req.query.month;
   if (req.query.from && req.query.to) f.month = { $gte: req.query.from, $lte: req.query.to };
-  if (req.query.salesman) f.salesman = req.query.salesman;
   if (req.query.dealer) f.dealerName = req.query.dealer;
+  // Role-aware salesman scoping:
+  //   - Admin / superadmin → see EVERYONE's category sales. They may also
+  //     narrow to one salesman via the optional ?salesman= query param.
+  //   - Salesman           → forced to their own id only, regardless of what
+  //     the query param says. This is what scopes Overview's "Category-wise
+  //     Sales — <month>" panel to just their data.
+  const role = req.user?.role;
+  if (role === 'admin' || role === 'superadmin') {
+    if (req.query.salesman) f.salesman = req.query.salesman;
+  } else if (req.user?.id) {
+    f.salesman = req.user.id;
+  }
   return f;
 }
 

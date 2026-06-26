@@ -33,8 +33,25 @@ function writeLS(key, set) {
   try { localStorage.setItem(key, JSON.stringify([...set])); } catch {}
 }
 
-function readCurrent() { return readLS(STORAGE_KEY); }
 function readDefault() { return readLS(DEFAULT_KEY); }
+
+// `readCurrent` — return the user's current selection. If localStorage has
+// never been written to in this browser (raw === null), fall back to the
+// saved DEFAULT so the user's "Save as default" choice auto-applies on
+// every fresh page open. Returning an empty set here used to wipe their
+// unchecks when LS got cleared (incognito, APK reinstall, etc.).
+function readCurrent() {
+  let raw = null;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch {}
+  if (raw === null) {
+    const dflt = readDefault();
+    // Seed STORAGE_KEY with the default so subsequent reads are fast.
+    if (dflt.size > 0) writeLS(STORAGE_KEY, dflt);
+    return dflt;
+  }
+  try { return new Set(JSON.parse(raw)); }
+  catch { return new Set(); }
+}
 
 function writeCurrent(set) {
   writeLS(STORAGE_KEY, set);
@@ -51,11 +68,17 @@ function pushToServer(patch) {
   try { api.updateMyPrefs(patch).catch(() => {}); } catch {}
 }
 
-// One-time-per-page-load fetch from the server, which then overwrites
-// localStorage. Components mounted later read the synced value.
+// One-time-per-page-load fetch from the server.
 //
-// Race-safe: if the user toggles a category WHILE the boot fetch is in
-// flight, we don't stomp their fresh selection with the server's value.
+// Sync rules (designed to never silently undo what the user explicitly did):
+//   • Server values are only adopted if NON-EMPTY. An empty array from the
+//     server means "the user hasn't saved anything there" (or the server is
+//     running old code without the prefs endpoint) — in that case localStorage
+//     wins so we don't wipe a fresh set of unchecks.
+//   • If the user toggles a category WHILE the boot fetch is in flight, we
+//     leave LS alone so their click wins the race.
+//   • A non-empty server value DOES overwrite localStorage. This is how
+//     unchecks made on another device get picked up here.
 let _bootFetched = false;
 async function bootSyncFromServer() {
   if (_bootFetched) return;
@@ -63,14 +86,19 @@ async function bootSyncFromServer() {
   const before = localStorage.getItem(STORAGE_KEY);
   try {
     const prefs = await api.getMyPrefs();
-    // If the user toggled something during the fetch, the LS value won't
-    // match `before` anymore — leave it alone and let their toggle win.
     const after = localStorage.getItem(STORAGE_KEY);
     const localChangedMidFlight = before !== after;
-    if (!localChangedMidFlight && prefs && Array.isArray(prefs.excludedCategories)) {
+    // Only adopt the server value if it's actually populated. Empty arrays
+    // from the server mean "no saved prefs" — local takes precedence then.
+    if (!localChangedMidFlight
+        && prefs
+        && Array.isArray(prefs.excludedCategories)
+        && prefs.excludedCategories.length > 0) {
       writeCurrent(new Set(prefs.excludedCategories));
     }
-    if (prefs && Array.isArray(prefs.defaultExcludedCategories)) {
+    if (prefs
+        && Array.isArray(prefs.defaultExcludedCategories)
+        && prefs.defaultExcludedCategories.length > 0) {
       writeDefault(new Set(prefs.defaultExcludedCategories));
     }
   } catch {

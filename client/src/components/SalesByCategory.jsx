@@ -180,7 +180,21 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
   }, [filteredByCatRows]);
 
   const filteredDealerRows   = dealerRowsAdj.filter(r   => !search || r.dealer.toLowerCase().includes(search.toLowerCase()));
-  const filteredSalesmanRows = salesmanRowsAdj.filter(r => !search || r.salesman.toLowerCase().includes(search.toLowerCase()));
+  // Resolve raw salesman IDs ("rakesh") to display names ("Rakesh Sharma"),
+  // drop the synthetic '_none' / '_unknown' / blank rows, and skip any row
+  // whose total comes out as 0 after the category filter (so the table only
+  // shows live, real salesmen — no "All" / placeholder garbage).
+  const filteredSalesmanRows = salesmanRowsAdj
+    .filter(r => {
+      const id = String(r.salesman || '').trim();
+      if (!id || id === '_none' || id === '_unknown' || /^all$/i.test(id)) return false;
+      return true;
+    })
+    .map(r => ({
+      ...r,
+      _displayName: users?.[r.salesman]?.name || r.salesman,
+    }))
+    .filter(r => !search || r._displayName.toLowerCase().includes(search.toLowerCase()));
 
   // ── Per-(salesman × category) volume targets — editable inline below ─
   const [catTargets, setCatTargets] = useState(new Map());   // key: salesmanId|category → number
@@ -394,8 +408,10 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
     downloadCSV(
       `Sales-by-Salesman-Category_${month}.csv`,
       ['Salesman', ...categories, 'Total'],
-      salesmanRowsAdj.map(r => [
-        r.salesman,
+      // Use the same cleaned + name-resolved list the table shows so the CSV
+      // matches what the user sees (no raw IDs, no placeholder rows).
+      filteredSalesmanRows.map(r => [
+        r._displayName,
         ...categories.map(c => Object.values(r.byCategory?.[c]||{}).reduce((s,v)=>s+v,0)),
         r.total,
       ]),
@@ -484,7 +500,7 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
         </div>
         <div className="card" style={{padding:14}}>
           <div style={{fontSize:11,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Salesmen Selling</div>
-          <div style={{fontSize:26,fontWeight:800,marginTop:4}}>{salesmanRowsAdj.filter(r=>r.total>0).length}</div>
+          <div style={{fontSize:26,fontWeight:800,marginTop:4}}>{filteredSalesmanRows.filter(r=>r.total>0).length}</div>
           <div style={{fontSize:11,color:'var(--t3)',marginTop:2}}>distinct salesmen with sales</div>
         </div>
       </div>
@@ -631,7 +647,7 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
               <tbody>
                 {filteredSalesmanRows.map(r => (
                   <tr key={r.salesman}>
-                    <td style={{position:'sticky',left:0,background:'var(--bg2)',fontWeight:600}}>{r.salesman}</td>
+                    <td style={{position:'sticky',left:0,background:'var(--bg2)',fontWeight:600}}>{r._displayName}</td>
                     {categories.map(c => {
                       const v = Object.values(r.byCategory?.[c]||{}).reduce((s,v)=>s+v,0);
                       return <td key={c} style={{textAlign:'right',color:v?'var(--t2)':'var(--t3)'}}>{v? fmt(v) : '—'}</td>;

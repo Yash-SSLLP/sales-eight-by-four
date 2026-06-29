@@ -38,6 +38,16 @@ const S = new mongoose.Schema({
     states:    { type:[String], default: [] },   // empty = no state restriction
     zones:     { type:[String], default: [] },   // empty = no zone restriction
     salesmen:  { type:[String], default: [] },   // empty = all salesmen
+    // App-section access. Empty array uses role-based defaults
+    // (admin = all features; salesman = read-only data views).
+    // When non-empty, ONLY these feature keys are granted.
+    // Recognised keys:
+    //   'monthlyEntry'  → Monthly Entry sidebar item + write routes
+    //   'manageMonths'  → Manage Months tools (dedupe, normalize, etc.)
+    //   'uploadData'    → Outstanding Excel upload + dealer/sales uploads
+    //   'manageCategories' → Admin Panel categories CRUD
+    //   'wipeData'      → Wipe all data (superadmin only by default)
+    features:  { type:[String], default: [] },
   },
 }, { timestamps:true });
 export default mongoose.models.User || mongoose.model('User', S);

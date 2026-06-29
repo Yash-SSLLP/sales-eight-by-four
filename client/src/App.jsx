@@ -16144,6 +16144,21 @@ export default function App(){
   const inactiveCount = (allStatuses['INACTIVE']||0)+(allStatuses['REACTIVE']||0);
   const deadCount = allStatuses['DEAD']||0;
 
+  // Feature-key map: which permission key (if any) controls each nav item.
+  // Superadmin sees everything. An admin with no explicit features keeps
+  // the legacy "all features" default. Otherwise only items whose `feature`
+  // is in currentUser.permissions.features show up.
+  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const userFeatures = Array.isArray(currentUser?.permissions?.features)
+    ? new Set(currentUser.permissions.features) : new Set();
+  const hasFeature = (key) => {
+    if (!key) return true;                // no feature gate
+    if (isSuperAdmin) return true;
+    if (userFeatures.size === 0)          // legacy fallback
+      return currentUser?.role === 'admin';
+    return userFeatures.has(key);
+  };
+
   const navItems=[
     {id:'overview',label:'Overview',icon:LayoutDashboard},
     {id:'dealers',label:'All Dealers',icon:Users},
@@ -16151,10 +16166,10 @@ export default function App(){
     {id:'compare',label:'Compare',icon:GitCompare},
     {id:'map',label:'Map View',icon:Map},
     {id:'outstanding',label:'Outstanding',icon:AlertTriangle},
-    {id:'upload',label:'Upload Data',icon:Upload,adminOnly:true},
+    {id:'upload',label:'Upload Data',icon:Upload,adminOnly:true,feature:'uploadData'},
     {id:'salesCat',   label:'Sales by Category',  icon:BarChart3},
-    {id:'entry',label:'Monthly Entry',icon:Edit3,adminOnly:true},
-    {id:'months',label:'Manage Months',icon:Calendar,adminOnly:true},
+    {id:'entry',label:'Monthly Entry',icon:Edit3,adminOnly:true,feature:'monthlyEntry'},
+    {id:'months',label:'Manage Months',icon:Calendar,adminOnly:true,feature:'manageMonths'},
     {id:'followups',label:'Follow-ups',icon:Bell,badge:overdueCount},
     {id:'attendance',label:'Attendance',icon:Camera},
     // CRM is a collapsible group with Visits + Leads + Tasks as children.
@@ -16166,8 +16181,8 @@ export default function App(){
     {id:'leaves',  label:'Leaves',  icon:Plane},
     {id:'tickets', label:'Support', icon:LifeBuoy},
     ...(isStaff?[{id:'reports', label:'Reports', icon:FileSpreadsheet}]:[]),
-    ...(isStaff?[{id:'admin',label:'Admin Panel',icon:Settings}]:[]),
-  ];
+    ...(isStaff?[{id:'admin',label:'Admin Panel',icon:Settings,feature:'manageCategories'}]:[]),
+  ].filter(item => hasFeature(item.feature));
 
   return(
     <MonthContext.Provider value={{selectedMonthIdx,setSelectedMonthIdx,MO:activeMO,currentMonthIdx:activeMonthIdx,currentMonthLabel:activeMonthLabel}}>

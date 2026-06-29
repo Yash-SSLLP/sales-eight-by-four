@@ -99,20 +99,37 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
-  // ── Edit data-access permissions (which states this user can see) ───────
-  const [permsForUid, setPermsForUid] = useState(null);     // user id being edited
-  const [permsStates, setPermsStates] = useState(new Set()); // current selection in the modal
-  const [permsSaving, setPermsSaving] = useState(false);
+  // ── Edit data-access + feature permissions ─────────────────────────────
+  const [permsForUid,    setPermsForUid]    = useState(null);
+  const [permsStates,    setPermsStates]    = useState(new Set());
+  const [permsFeatures,  setPermsFeatures]  = useState(new Set());
+  const [permsSaving,    setPermsSaving]    = useState(false);
+
+  // App-section features the admin can grant. Keys must match the
+  // requireFeature() guards on the server.
+  const FEATURE_OPTIONS = [
+    { key: 'monthlyEntry',     label: 'Monthly Entry',       desc: 'Edit per-dealer Achieved / Target, run the unified Excel upload' },
+    { key: 'manageMonths',     label: 'Manage Months',       desc: 'Dedupe dealers, normalize state/city, wipe month, repair targets' },
+    { key: 'uploadData',       label: 'Upload Data',         desc: 'Upload Outstanding Excel and other bulk imports' },
+    { key: 'manageCategories', label: 'Manage Categories',   desc: 'Add/edit/delete categories + sub-categories in Admin Panel' },
+  ];
+
   const openPermissions = (uid) => {
     const cur = allUsers[uid]?.permissions || {};
     setPermsStates(new Set(Array.isArray(cur.states) ? cur.states : []));
+    setPermsFeatures(new Set(Array.isArray(cur.features) ? cur.features : []));
     setPermsForUid(uid);
   };
   const savePermissions = async () => {
     if (!permsForUid) return;
     setPermsSaving(true);
     try {
-      const next = { states: [...permsStates], zones: [], salesmen: [] };
+      const next = {
+        states:   [...permsStates],
+        zones:    [],
+        salesmen: [],
+        features: [...permsFeatures],
+      };
       await api.updateUser(permsForUid, { permissions: next });
       setAllUsers({ ...allUsers, [permsForUid]: { ...allUsers[permsForUid], permissions: next } });
       setUsers({ ...users, [permsForUid]: { ...users[permsForUid], permissions: next } });
@@ -571,8 +588,42 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                 })}
               </div>
             )}
+            {/* ── App-section feature toggles ─────────────────────── */}
+            <div style={{fontSize:11, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8, marginTop:4}}>
+              App sections — grant access
+            </div>
+            <div style={{
+              display:'flex', flexDirection:'column', gap:6,
+              padding:10, background:'var(--bg2)', borderRadius:6, marginBottom:14,
+            }}>
+              {FEATURE_OPTIONS.map(opt => {
+                const on = permsFeatures.has(opt.key);
+                return (
+                  <label key={opt.key} style={{
+                    fontSize:12, display:'flex', alignItems:'flex-start', gap:8, cursor:'pointer',
+                    padding:'6px 8px', borderRadius:5,
+                    background: on ? 'rgba(99,102,241,0.10)' : 'transparent',
+                    border:'1px solid ' + (on ? 'rgba(99,102,241,0.40)' : 'transparent'),
+                  }}>
+                    <input type="checkbox" checked={on} onChange={()=>{
+                      const next = new Set(permsFeatures);
+                      on ? next.delete(opt.key) : next.add(opt.key);
+                      setPermsFeatures(next);
+                    }} style={{margin:'2px 0 0 0'}}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:600, color: on ? '#a5b4fc' : 'var(--t2)'}}>{opt.label}</div>
+                      <div style={{fontSize:10, color:'var(--t3)', marginTop:1}}>{opt.desc}</div>
+                    </div>
+                  </label>
+                );
+              })}
+              <div style={{fontSize:10, color:'var(--t3)', marginTop:4, fontStyle:'italic'}}>
+                Leave all unchecked → admins keep full access (legacy default); salesmen get no write features.
+              </div>
+            </div>
+
             <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
-              <button className="btn" onClick={() => setPermsStates(new Set())}>Clear all</button>
+              <button className="btn" onClick={() => { setPermsStates(new Set()); setPermsFeatures(new Set()); }}>Clear all</button>
               <button className="btn" onClick={() => setPermsForUid(null)}>Cancel</button>
               <button className="btnp" onClick={savePermissions} disabled={permsSaving}>
                 {permsSaving ? 'Saving…' : 'Save permissions'}

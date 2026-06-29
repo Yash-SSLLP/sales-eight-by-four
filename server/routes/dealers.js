@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import XLSX from 'xlsx';
 import mongoose from 'mongoose';
-import { protect, adminOnly, superAdminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, superAdminOnly, requireFeature } from '../middleware/auth.js';
 
 const router = express.Router();
 const upload = multer({ storage:multer.memoryStorage(), limits:{ fileSize:10*1024*1024 } });
@@ -312,7 +312,7 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
 // exists — so per-category sales history isn't lost.
 //
 // Body: { source:'cat-upload', dryRun:true|false }
-router.post('/delete-by-source', protect, adminOnly, async (req, res) => {
+router.post('/delete-by-source', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const source = String(req.body?.source || '').trim();
     if (!source) return res.status(400).json({ error: 'source required' });
@@ -380,7 +380,7 @@ router.post('/delete-by-source', protect, adminOnly, async (req, res) => {
 // Sale rows belonging to the duplicate are migrated to the canonical dealer
 // first, then the duplicate is deleted.
 // Body: { dryRun:true|false }
-router.post('/cleanup-suffix-dupes', protect, adminOnly, async (req, res) => {
+router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
 
@@ -483,7 +483,7 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, async (req, res) => {
 //   3. Delete the duplicate records
 // Returns: { dealersScanned, groupsFound, duplicatesRemoved, sample[] }
 // Pass {dryRun:true} in body to preview without changes.
-router.post('/dedupe', protect, adminOnly, async (req, res) => {
+router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
     const all = await Dealer.find({});
@@ -567,7 +567,7 @@ router.post('/dedupe', protect, adminOnly, async (req, res) => {
 //   4. Delete the duplicates.
 //
 // Body: { dryRun:true|false }
-router.post('/dedupe-stripped', protect, adminOnly, async (req, res) => {
+router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
     const all = await Dealer.find({});
@@ -704,7 +704,7 @@ router.post('/dedupe-stripped', protect, adminOnly, async (req, res) => {
 //
 // Skips rows already in canonical form. Does NOT touch any other field.
 // Body: { dryRun:true|false }
-router.post('/normalize-city-state', protect, adminOnly, async (req, res) => {
+router.post('/normalize-city-state', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
     const titleCase = s => String(s || '')

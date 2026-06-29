@@ -24,3 +24,27 @@ export const superAdminOnly = (req, res, next) => {
   if(req.user?.role !== 'superadmin') return res.status(403).json({ error:'Superadmin only' });
   next();
 };
+
+// Feature-gate middleware. Returns Express middleware that allows the
+// request when the user has the named feature granted in their
+// permissions.features list (or is superadmin / a plain admin with no
+// explicit features list — they keep the legacy "all features" default).
+export const requireFeature = (featureKey) => async (req, res, next) => {
+  const role = req.user?.role;
+  if (role === 'superadmin') return next();   // always allowed
+  try {
+    const User = (await import('../models/User.js')).default;
+    const u = await User.findOne({ id: req.user.id }, 'permissions role').lean();
+    const features = Array.isArray(u?.permissions?.features) ? u.permissions.features : [];
+    // Legacy default: an admin with NO explicit features list keeps full
+    // access. A salesman with NO list has none of these write features.
+    if (features.length === 0) {
+      if (role === 'admin') return next();
+      return res.status(403).json({ error: `Feature "${featureKey}" not granted` });
+    }
+    if (features.includes(featureKey)) return next();
+    return res.status(403).json({ error: `Feature "${featureKey}" not granted` });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+};

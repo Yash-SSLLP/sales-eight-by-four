@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, UserPlus, LogIn, KeyRound, Link as LinkIcon, Trash2, Shield, ShieldCheck, Power, PowerOff } from 'lucide-react';
+import { X, UserPlus, LogIn, KeyRound, Link as LinkIcon, Trash2, Shield, ShieldCheck, Power, PowerOff, MapPin } from 'lucide-react';
 import { Avatar } from './UI';
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
@@ -27,6 +27,16 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
   const [color,   setColor]   = useState('#818cf8');
   const [busy,    setBusy]    = useState(false);
   const [msg,     setMsg]     = useState(null);
+  // State-based permissions for the new user. Empty array = no restriction
+  // (user sees every state). Pre-populate the list of states from the dealer
+  // roster on first open so the admin can tick the relevant ones.
+  const [allStates,    setAllStates]    = useState([]);
+  const [createStates, setCreateStates] = useState(new Set());
+  useEffect(() => {
+    api.dealerDistinctStates()
+      .then(r => setAllStates(r?.states || []))
+      .catch(() => {});
+  }, []);
 
   const colors = ['#818cf8','#34d399','#f472b6','#fb923c','#fbbf24','#22d3ee','#e879f9','#a78bfa','#f87171','#4ade80'];
 
@@ -48,15 +58,16 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     setBusy(true);
     try {
       const ini = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
-      const newUser = await api.createUser({ id: idC, name, pass, role, color, ini });
+      const permissions = { states: [...createStates], zones: [], salesmen: [] };
+      const newUser = await api.createUser({ id: idC, name, pass, role, color, ini, permissions });
       // Optimistically update local cache for instant feedback…
-      setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true } });
-      setAllUsers({ ...allUsers, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true } });
+      setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true, permissions } });
+      setAllUsers({ ...allUsers, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true, permissions } });
       // …then trigger a server-side refresh so the new user appears with all
       // server-side fields and persists across page reloads + other devices.
       onUsersChanged?.();
       refreshAll();
-      setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman');
+      setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman'); setCreateStates(new Set());
       flash('success', 'Created ' + name + ' (' + idC + '). Password: ' + pass);
     } catch(e){
       flash('error', 'Create failed: ' + e.message);
@@ -86,6 +97,57 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
       onUsersChanged?.();
       flash('success', 'Sheet URL updated');
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
+  };
+
+  // ── Edit data-access permissions (which states this user can see) ───────
+  const [permsForUid, setPermsForUid] = useState(null);     // user id being edited
+  const [permsStates, setPermsStates] = useState(new Set()); // current selection in the modal
+  const [permsSaving, setPermsSaving] = useState(false);
+  const openPermissions = (uid) => {
+    const cur = allUsers[uid]?.permissions || {};
+    setPermsStates(new Set(Array.isArray(cur.states) ? cur.states : []));
+    setPermsForUid(uid);
+  };
+  const savePermissions = async () => {
+    if (!permsForUid) return;
+    setPermsSaving(true);
+    try {
+      const next = { states: [...permsStates], zones: [], salesmen: [] };
+      await api.updateUser(permsForUid, { permissions: next });
+      setAllUsers({ ...allUsers, [permsForUid]: { ...allUsers[permsForUid], permissions: next } });
+      setUsers({ ...users, [permsForUid]: { ...users[permsForUid], permissions: next } });
+      onUsersChanged?.();
+      flash('success', `Permissions updated for ${allUsers[permsForUid]?.name || permsForUid}.`);
+      setPermsForUid(null);
+    } catch (e) {
+      flash('error', 'Save failed: ' + e.message);
+    } finally { setPermsSaving(false); }
+  };
+
+  // ── Permissions debug — show what's actually saved + how many dealers match
+  const debugPermissions = async (uid) => {
+    try {
+      const r = await api.userDebugScope(uid);
+      const lines = [
+        `User: ${r.user?.name} (${r.user?.id}, role: ${r.user?.role})`,
+        `Stored permissions: ${JSON.stringify(r.user?.permissions || {})}`,
+        ``,
+        `Resolved filter: ${JSON.stringify(r.resolvedFilter)}`,
+        `Matching dealers: ${r.matchingDealerCount} / ${r.totalDealersInDb}`,
+        ``,
+        `States currently in DB (${r.dbDistinctStates.length}):`,
+        r.dbDistinctStates.map(s => `  • "${s}"`).join('\n'),
+      ];
+      await confirmDialog({
+        title: `Permission scope — ${allUsers[uid]?.name || uid}`,
+        message: lines.join('\n'),
+        confirmText: 'OK',
+        cancelText: null,
+      });
+      console.log('[DEBUG SCOPE]', r);
+    } catch (e) {
+      flash('error', 'Debug failed: ' + e.message);
+    }
   };
 
   // ── Toggle active / inactive (soft disable) ────────────────────────────
@@ -287,6 +349,11 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                         {u.approver ? (allUsers[u.approver]?.name || u.approver) : 'any admin'}
                       </span></>
                     )}
+                    {Array.isArray(u.permissions?.states) && u.permissions.states.length > 0 && (
+                      <> · <MapPin size={9} style={{display:'inline', verticalAlign:'-1px', color:'#fbbf24'}}/>
+                        <span style={{color:'#fbbf24'}}> {u.permissions.states.join(', ')}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -314,6 +381,19 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                       <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>editApprover(u.id)} title="Set leave / visit approver">
                         <Shield size={11}/>
                       </button>
+                    )}
+                    {(u.role === 'admin' || u.role === 'salesman') && (
+                      <>
+                        <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>openPermissions(u.id)}
+                          title="Data permissions — restrict which states this user can see">
+                          <MapPin size={11}/>
+                        </button>
+                        <button className="btn" style={{fontSize:11, padding:'4px 8px'}} onClick={()=>debugPermissions(u.id)}
+                          title="Diagnostic: show what's actually saved on the server + how many dealers match"
+                          aria-label="Debug permissions">
+                          ?
+                        </button>
+                      </>
                     )}
                     {!isSelf && (
                       u.active === false ? (
@@ -395,12 +475,112 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                 ))}
               </div>
             </div>
+
+            {/* ── Data Permissions ─ which states can this user see? ───── */}
+            <div className="field full">
+              <label style={{display:'flex', alignItems:'center', gap:6}}>
+                <MapPin size={12}/> Data Permissions — States
+                <span style={{color:'var(--t3)', fontSize:10, fontWeight:400}}>
+                  (leave all unchecked = sees every state)
+                </span>
+              </label>
+              {allStates.length === 0 ? (
+                <div style={{fontSize:11, color:'var(--t3)', padding:'8px 0'}}>
+                  No states found in dealer data yet. Run "Normalize City / State" in Manage Months first.
+                </div>
+              ) : (
+                <div style={{
+                  display:'flex', flexWrap:'wrap', gap:6, marginTop:6,
+                  padding:8, background:'var(--bg2)', borderRadius:6, maxHeight:140, overflowY:'auto',
+                }}>
+                  {allStates.map(s => {
+                    const on = createStates.has(s);
+                    return (
+                      <label key={s} style={{
+                        fontSize:11, display:'inline-flex', alignItems:'center', gap:4, cursor:'pointer',
+                        padding:'4px 8px', borderRadius:5,
+                        background: on ? 'rgba(34,197,94,0.18)' : 'transparent',
+                        border:'1px solid ' + (on ? 'rgba(34,197,94,0.5)' : 'var(--b1)'),
+                        color: on ? '#86efac' : 'var(--t2)', fontWeight: on?700:500,
+                      }}>
+                        <input type="checkbox" checked={on} onChange={()=>{
+                          const next = new Set(createStates);
+                          on ? next.delete(s) : next.add(s);
+                          setCreateStates(next);
+                        }} style={{margin:0}}/>
+                        {s}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {createStates.size > 0 && (
+                <div style={{fontSize:10, color:'#fbbf24', marginTop:6}}>
+                  This user will only see dealers / outstanding / sales for: <b>{[...createStates].join(', ')}</b>
+                </div>
+              )}
+            </div>
           </div>
           <button className="btnp" onClick={create} disabled={busy} style={{marginTop:10, display:'flex', alignItems:'center', gap:6}}>
             <UserPlus size={13}/> {busy ? 'Creating…' : 'Create Account'}
           </button>
         </div>
       </div>
+
+      {/* ── Permissions modal (Edit existing user's data scope) ────────── */}
+      {permsForUid && (
+        <div className="overlay" style={{zIndex: 60}} onClick={e => e.target === e.currentTarget && setPermsForUid(null)}>
+          <div className="modal" style={{maxWidth: 480}}>
+            <div className="row" style={{marginBottom: 12}}>
+              <div style={{fontSize:15, fontWeight:700, display:'flex', alignItems:'center', gap:8}}>
+                <MapPin size={14}/> Data Permissions
+              </div>
+              <div className="spacer"/>
+              <button onClick={() => setPermsForUid(null)} className="btn"><X size={14}/></button>
+            </div>
+            <div style={{fontSize:12, color:'var(--t2)', marginBottom:10}}>
+              Restrict <b>{allUsers[permsForUid]?.name}</b> to specific states. Leave everything unchecked to give full access.
+            </div>
+            {allStates.length === 0 ? (
+              <div style={{fontSize:12, color:'var(--t3)', padding:'12px 0'}}>
+                No states found in dealer data yet.
+              </div>
+            ) : (
+              <div style={{
+                display:'flex', flexWrap:'wrap', gap:6, marginBottom:14,
+                padding:10, background:'var(--bg2)', borderRadius:6, maxHeight:300, overflowY:'auto',
+              }}>
+                {allStates.map(s => {
+                  const on = permsStates.has(s);
+                  return (
+                    <label key={s} style={{
+                      fontSize:11, display:'inline-flex', alignItems:'center', gap:4, cursor:'pointer',
+                      padding:'4px 8px', borderRadius:5,
+                      background: on ? 'rgba(34,197,94,0.18)' : 'transparent',
+                      border:'1px solid ' + (on ? 'rgba(34,197,94,0.5)' : 'var(--b1)'),
+                      color: on ? '#86efac' : 'var(--t2)', fontWeight: on?700:500,
+                    }}>
+                      <input type="checkbox" checked={on} onChange={()=>{
+                        const next = new Set(permsStates);
+                        on ? next.delete(s) : next.add(s);
+                        setPermsStates(next);
+                      }} style={{margin:0}}/>
+                      {s}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+              <button className="btn" onClick={() => setPermsStates(new Set())}>Clear all</button>
+              <button className="btn" onClick={() => setPermsForUid(null)}>Cancel</button>
+              <button className="btnp" onClick={savePermissions} disabled={permsSaving}>
+                {permsSaving ? 'Saving…' : 'Save permissions'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1666,6 +1666,11 @@ export const api = {
   getUsers:    ()      => fetch(`${BASE}/auth/users`,{headers:authHeaders()}).then(handle),
   getUsersAll: ()      => fetch(`${BASE}/auth/users?includeInactive=1`,{headers:authHeaders()}).then(handle),
 
+  // Diagnostic — returns { user, resolvedFilter, matchingDealerCount,
+  // totalDealersInDb, dbDistinctStates } for a specific user. Admin only.
+  // Useful when state permissions aren't filtering as expected.
+  userDebugScope: (uid) => fetch(`${BASE}/auth/users/${encodeURIComponent(uid)}/debug-scope`,{headers:authHeaders()}).then(handle),
+
   // Per-user UI preferences (lives on the server so it survives APK reinstall,
   // incognito, switching devices). Currently used for the global category filter.
   getMyPrefs:   ()      => fetch(`${BASE}/auth/me/prefs`,{headers:authHeaders()}).then(handle),
@@ -1782,6 +1787,10 @@ export const api = {
   // stamp so it reflects real DB writes (including ones from other users)
   // and not the page-load time.
   dealersLastUpdated: () => fetch(`${BASE}/dealers/last-updated`,{ headers:authHeaders() }).then(handle),
+
+  // Unique state list across the dealer roster — used by the user-management
+  // permissions editor to render a checkbox per state.
+  dealerDistinctStates: () => fetch(`${BASE}/dealers/distinct-states`,{ headers:authHeaders() }).then(handle),
 
   // Admin: find and remove dealers whose name = "<canonical> <salesman first name>"
   // (e.g. "76 EAST pranav" when "76 EAST" already exists for salesman Pranav).

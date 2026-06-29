@@ -677,19 +677,51 @@ router.get('/months', protect, async (req, res) => {
  *  Aggregations                                                     *
  * ----------------------------------------------------------------- */
 
-function monthFilter(req) {
+// Async because we may need to look up the user's permissions in Mongo and
+// resolve permitted-state dealer names before composing the filter.
+async function monthFilter(req) {
   const f = {};
   if (req.query.month) f.month = req.query.month;
   if (req.query.from && req.query.to) f.month = { $gte: req.query.from, $lte: req.query.to };
   if (req.query.dealer) f.dealerName = req.query.dealer;
-  // Role-aware salesman scoping:
-  //   - Admin / superadmin → see EVERYONE's category sales. They may also
-  //     narrow to one salesman via the optional ?salesman= query param.
-  //   - Salesman           → forced to their own id only, regardless of what
-  //     the query param says. This is what scopes Overview's "Category-wise
-  //     Sales — <month>" panel to just their data.
+
   const role = req.user?.role;
-  if (role === 'admin' || role === 'superadmin') {
+  if (role === 'superadmin') {
+    // Optional admin override
+    if (req.query.salesman) f.salesman = req.query.salesman;
+    return f;
+  }
+
+  // Load the user's data-access permissions from the DB.
+  const User = (await import('../models/User.js')).default;
+  const u = await User.findOne({ id: req.user.id }, 'permissions').lean();
+  const p = u?.permissions || {};
+  const hasStates   = Array.isArray(p.states)   && p.states.length   > 0;
+  const hasZones    = Array.isArray(p.zones)    && p.zones.length    > 0;
+  const hasSalesmen = Array.isArray(p.salesmen) && p.salesmen.length > 0;
+
+  if (hasStates || hasZones || hasSalesmen) {
+    // Resolve permitted dealer set by looking up dealers matching the
+    // permission scope, then constrain the Sale aggregation to those
+    // dealer names. Salesman/admin both go through this path when perms
+    // are configured — perms are the source of truth.
+    const Dealer = (await import('../models/Dealer.js')).default;
+    const dealerFilt = {};
+    const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
+    if (hasStates)   dealerFilt.state    = { $in: p.states.map(ciMatch) };
+    if (hasZones)    dealerFilt.zone     = { $in: p.zones.map(ciMatch) };
+    if (hasSalesmen) dealerFilt.salesman = { $in: p.salesmen };
+    const permitted = await Dealer.find(dealerFilt, 'name').lean();
+    const names = permitted.map(d => d.name);
+    // If perms resolve to zero dealers (typo / mismatched state), short out.
+    f.dealerName = names.length ? { $in: names } : { $in: ['__no_match__'] };
+    if (hasSalesmen) f.salesman = { $in: p.salesmen };
+    return f;
+  }
+
+  // No explicit permissions — fall back to role default.
+  if (role === 'admin') {
     if (req.query.salesman) f.salesman = req.query.salesman;
   } else if (req.user?.id) {
     f.salesman = req.user.id;
@@ -699,7 +731,7 @@ function monthFilter(req) {
 
 // GET /api/sales/by-category   →  [{ category, subCategory, qty }] + grand total
 router.get('/by-category', protect, async (req, res) => {
-  const filter = monthFilter(req);
+  const filter = await monthFilter(req);
   const rows = await Sale.aggregate([
     { $match: filter },
     { $group: { _id: { category: '$category', subCategory: '$subCategory' }, qty: { $sum: '$qty' } } },
@@ -712,7 +744,7 @@ router.get('/by-category', protect, async (req, res) => {
 
 // GET /api/sales/by-dealer  →  [{ dealer, byCategory:{cat:{sub:qty}}, total }]
 router.get('/by-dealer', protect, async (req, res) => {
-  const filter = monthFilter(req);
+  const filter = await monthFilter(req);
   const rows = await Sale.aggregate([
     { $match: filter },
     { $group: {
@@ -736,7 +768,7 @@ router.get('/by-dealer', protect, async (req, res) => {
 
 // GET /api/sales/by-salesman  →  [{ salesman, byCategory:{cat:{sub:qty}}, total }]
 router.get('/by-salesman', protect, async (req, res) => {
-  const filter = monthFilter(req);
+  const filter = await monthFilter(req);
   const rows = await Sale.aggregate([
     { $match: filter },
     { $group: {
@@ -760,7 +792,7 @@ router.get('/by-salesman', protect, async (req, res) => {
 
 // GET /api/sales/raw  → raw line items (paged)
 router.get('/raw', protect, async (req, res) => {
-  const filter = monthFilter(req);
+  const filter = await monthFilter(req);
   const limit = Math.min(parseInt(req.query.limit) || 200, 5000);
   const skip = parseInt(req.query.skip) || 0;
   const rows = await Sale.find(filter).sort({ dealerName: 1, category: 1, subCategory: 1 }).skip(skip).limit(limit).lean();

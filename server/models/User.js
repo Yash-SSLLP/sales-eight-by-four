@@ -28,5 +28,16 @@ const S = new mongoose.Schema({
     excludedCategories:        { type:[String], default: [] },
     defaultExcludedCategories: { type:[String], default: [] },
   },
+  // Data-access scope. When any of these arrays is non-empty, the user's
+  // reads (dealers, outstanding, sales, etc.) are restricted to dealers
+  // whose state / zone / salesman matches. Superadmin ignores these and
+  // sees everything. Salesmen still see only their own dealers (their
+  // existing scope rule wins). Useful for a "regional manager" who should
+  // only see Karnataka + Tamil Nadu data without being a salesman.
+  permissions: {
+    states:    { type:[String], default: [] },   // empty = no state restriction
+    zones:     { type:[String], default: [] },   // empty = no zone restriction
+    salesmen:  { type:[String], default: [] },   // empty = all salesmen
+  },
 }, { timestamps:true });
 export default mongoose.models.User || mongoose.model('User', S);

@@ -54,6 +54,54 @@ router.get('/me', protect, async (req, res) => {
   res.json(user);
 });
 
+// GET /api/auth/users/:id/debug-scope — diagnostic: shows the target
+// user's permissions, the resolved dealer filter, the count of dealers
+// that match, AND a list of distinct dealer.state values currently in
+// the DB. Lets an admin verify in one click whether a user's state
+// permissions are saved correctly and whether dealer state values match.
+// Admin only.
+router.get('/users/:id/debug-scope', protect, adminOnly, async (req, res) => {
+  try {
+    const user = await User.findOne({ id: req.params.id }, '-pass').lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const Dealer = (await import('../models/Dealer.js')).default;
+    const p = user.permissions || {};
+    const hasStates   = Array.isArray(p.states)   && p.states.length   > 0;
+    const hasZones    = Array.isArray(p.zones)    && p.zones.length    > 0;
+    const hasSalesmen = Array.isArray(p.salesmen) && p.salesmen.length > 0;
+    let filter = {};
+    if (user.role === 'superadmin') {
+      filter = {};
+    } else if (hasStates || hasZones || hasSalesmen) {
+      const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
+      if (hasStates)   filter.state    = { $in: p.states.map(ciMatch) };
+      if (hasZones)    filter.zone     = { $in: p.zones.map(ciMatch) };
+      if (hasSalesmen) filter.salesman = { $in: p.salesmen };
+    } else if (user.role === 'salesman') {
+      filter = { salesman: user.id };
+    }
+    const matching = await Dealer.countDocuments(filter);
+    const totalAll = await Dealer.countDocuments({});
+    const dbStates = (await Dealer.distinct('state')).filter(Boolean).sort();
+    // Echo `resolvedFilter` as plain strings (regex doesn't JSON.stringify well)
+    const printable = {};
+    if (filter.state)    printable.state    = '[case-insensitive match] ' + p.states.join(', ');
+    if (filter.zone)     printable.zone     = '[case-insensitive match] ' + p.zones.join(', ');
+    if (filter.salesman) printable.salesman = p.salesmen?.join(', ') || filter.salesman;
+    if (Object.keys(filter).length === 0) printable.note = 'No filter — sees all dealers';
+    res.json({
+      user: { id: user.id, name: user.name, role: user.role, permissions: user.permissions },
+      resolvedFilter:      printable,
+      matchingDealerCount: matching,
+      totalDealersInDb:    totalAll,
+      dbDistinctStates:    dbStates,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/auth/me/prefs — fetch this user's UI preferences (category filter etc.)
 router.get('/me/prefs', protect, async (req, res) => {
   const user = await User.findOne({ id:req.user.id }, 'prefs');
@@ -96,14 +144,19 @@ router.put('/users/:id', protect, async (req, res) => {
   // Authorize the edit
   let allowed = [];
   if(isSuperAdmin){
-    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role','approver','active'];
+    allowed = ['url','url2','url_outstanding','pass','name','color','ini','role','approver','active','permissions'];
   } else if(isAdmin){
     if(isSelf) {
       // editing own profile
       allowed = ['url','url2','url_outstanding','pass','name','color','ini'];
     } else if(target.role === 'salesman') {
-      // admin editing a salesman — can also activate / deactivate
-      allowed = ['url','url2','url_outstanding','pass','name','color','ini','approver','active'];
+      // admin editing a salesman — can also activate / deactivate and grant
+      // state-based data permissions
+      allowed = ['url','url2','url_outstanding','pass','name','color','ini','approver','active','permissions'];
+    } else if(target.role === 'admin') {
+      // Admins can grant / change data-access permissions for other admins,
+      // but not promote them to superadmin or change their role.
+      allowed = ['permissions','active'];
     } else {
       return res.status(403).json({ error:'Admins cannot edit other admins or superadmins' });
     }
@@ -114,18 +167,50 @@ router.put('/users/:id', protect, async (req, res) => {
   }
 
   const update = {};
-  allowed.forEach(k => { if(req.body[k] !== undefined) update[k] = req.body[k]; });
+  let permsToWrite = null;
+  allowed.forEach(k => {
+    if (req.body[k] === undefined) return;
+    if (k === 'permissions') {
+      // Use dot-notation $set so each array writes independently and we
+      // can't accidentally drop sibling sub-fields. Also normalize: drop
+      // empties, dedupe, trim.
+      const p = req.body.permissions || {};
+      const clean = arr => Array.isArray(arr)
+        ? [...new Set(arr.map(v => String(v).trim()).filter(Boolean))]
+        : [];
+      permsToWrite = { states: clean(p.states), zones: clean(p.zones), salesmen: clean(p.salesmen) };
+      update['permissions.states']   = permsToWrite.states;
+      update['permissions.zones']    = permsToWrite.zones;
+      update['permissions.salesmen'] = permsToWrite.salesmen;
+    } else {
+      update[k] = req.body[k];
+    }
+  });
   // Extra safety: prevent role escalation by non-superadmin
   if(!isSuperAdmin && update.role) delete update.role;
 
-  const user = await User.findOneAndUpdate({ id: targetId }, update, { new:true, select:'-pass' });
+  // Diagnostic — log permission writes so we can confirm they actually
+  // land in MongoDB. Remove once the feature is verified working.
+  if (permsToWrite) {
+    console.log('[USER PUT] permissions write — target=%s by=%s value=%s',
+      targetId, me.id, JSON.stringify(permsToWrite));
+  }
+
+  const user = await User.findOneAndUpdate(
+    { id: targetId },
+    { $set: update },
+    { new:true, select:'-pass' }
+  );
+  if (permsToWrite) {
+    console.log('[USER PUT] permissions after-save —', JSON.stringify(user?.permissions));
+  }
   res.json(user);
 });
 
 // ── POST /api/auth/users ───────────────────────────────────────────────────
 // Admin can create salesmen only. Superadmin can create any role.
 router.post('/users', protect, adminOnly, async (req, res) => {
-  const { id, name, pass, role, color, ini } = req.body;
+  const { id, name, pass, role, color, ini, permissions } = req.body;
   if(!id||!name||!pass) return res.status(400).json({ error:'id, name, pass required' });
   const exists = await User.findOne({ id });
   if(exists) return res.status(400).json({ error:'User already exists' });
@@ -136,12 +221,20 @@ router.post('/users', protect, adminOnly, async (req, res) => {
     return res.status(403).json({ error:'Only superadmin can create admins or superadmins' });
   }
 
-  const user = await User.create({
+  const doc = {
     id, name, pass,
     role: wantRole,
     color: color || '#818cf8',
     ini: ini || name.slice(0, 2).toUpperCase(),
-  });
+  };
+  if (permissions && typeof permissions === 'object') {
+    doc.permissions = {
+      states:   Array.isArray(permissions.states)   ? permissions.states   : [],
+      zones:    Array.isArray(permissions.zones)    ? permissions.zones    : [],
+      salesmen: Array.isArray(permissions.salesmen) ? permissions.salesmen : [],
+    };
+  }
+  const user = await User.create(doc);
   res.json(user);
 });
 

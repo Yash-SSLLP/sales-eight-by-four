@@ -30,12 +30,36 @@ const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'super
 router.get('/', protect, async (req, res) => {
   try {
     const all = await Outstanding.find({});
-    if(isStaff(req)) return res.json(all.map(toPlain));
+    if (req.user?.role === 'superadmin') return res.json(all.map(toPlain));
     const Dealer = mongoose.models.Dealer;
-    if(!Dealer) return res.json([]);
-    const myDealers = await Dealer.find({salesman:req.user.id},'name').lean();
-    const myNames = new Set(myDealers.map(d=>d.name.toLowerCase().trim()));
-    res.json(all.filter(o=>myNames.has(o.dealerName?.toLowerCase().trim())).map(toPlain));
+    if (!Dealer) return res.json([]);
+
+    // Same priority order as the dealer route: explicit permissions win over
+    // the salesman-own-dealers default.
+    const User = (await import('../models/User.js')).default;
+    const u = await User.findOne({ id: req.user.id }, 'permissions').lean();
+    const p = u?.permissions || {};
+    const hasStates   = Array.isArray(p.states)   && p.states.length   > 0;
+    const hasZones    = Array.isArray(p.zones)    && p.zones.length    > 0;
+    const hasSalesmen = Array.isArray(p.salesmen) && p.salesmen.length > 0;
+
+    let dealerFilter = {};
+    if (hasStates || hasZones || hasSalesmen) {
+      // Case-insensitive state/zone match — see dealers.js for rationale.
+      const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
+      if (hasStates)   dealerFilter.state    = { $in: p.states.map(ciMatch) };
+      if (hasZones)    dealerFilter.zone     = { $in: p.zones.map(ciMatch) };
+      if (hasSalesmen) dealerFilter.salesman = { $in: p.salesmen };
+    } else if (req.user?.role === 'salesman') {
+      dealerFilter = { salesman: req.user.id };
+    } else {
+      // admin with no permissions → see everything
+      return res.json(all.map(toPlain));
+    }
+    const myDealers = await Dealer.find(dealerFilter, 'name').lean();
+    const myNames = new Set(myDealers.map(d => d.name.toLowerCase().trim()));
+    res.json(all.filter(o => myNames.has(o.dealerName?.toLowerCase().trim())).map(toPlain));
   } catch(e){ console.error('[OUTSTANDING]',e.message); res.status(500).json({error:e.message}); }
 });
 

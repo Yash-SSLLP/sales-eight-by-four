@@ -80,6 +80,46 @@ const fmt = (d, MO=[]) => {
 // Staff = admin OR superadmin (both see everything). Salesmen only see their own.
 const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
 
+// ── Build the role + permission scoped Mongo filter for dealer reads ──────
+// Logic (priority order):
+//   - superadmin → no filter, sees everything.
+//   - ANY user (salesman or admin) WITH explicit permissions set
+//     → use those permissions (states / zones / salesmen filter).
+//     This makes the permission system the source of truth when configured,
+//     including for salesmen who should expand beyond their own dealers.
+//   - salesman with NO permissions → default rule: see only own dealers.
+//   - admin with NO permissions → default rule: see everything.
+async function dealerScopeFilter(req) {
+  const role = req.user?.role;
+  if (role === 'superadmin') return {};
+
+  // Pull permissions from the DB (not the JWT — JWT doesn't carry them).
+  let User;
+  try { User = (await import('../models/User.js')).default; } catch { User = null; }
+  const u = User ? await User.findOne({ id: req.user.id }, 'permissions').lean() : null;
+  const p = u?.permissions || {};
+  const hasStates   = Array.isArray(p.states)   && p.states.length   > 0;
+  const hasZones    = Array.isArray(p.zones)    && p.zones.length    > 0;
+  const hasSalesmen = Array.isArray(p.salesmen) && p.salesmen.length > 0;
+
+  if (hasStates || hasZones || hasSalesmen) {
+    const filt = {};
+    // Case-insensitive + whitespace-tolerant match for state/zone — so a
+    // saved permission of "Kerala" still matches dealer rows stored as
+    // "kerala", "KERALA", "Kerala " etc. Without this, mixed casing in
+    // legacy uploads causes the scope to return zero dealers.
+    const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
+    if (hasStates)   filt.state    = { $in: p.states.map(ciMatch) };
+    if (hasZones)    filt.zone     = { $in: p.zones.map(ciMatch) };
+    if (hasSalesmen) filt.salesman = { $in: p.salesmen };   // salesman ids are already lowercase
+    return filt;
+  }
+  // No explicit permissions configured — fall back to role default.
+  if (role === 'salesman') return { salesman: req.user.id };
+  return {};   // admin with no permissions = see everything
+}
+
 // ── GET /api/dealers/last-updated ─────────────────────────────────────────
 // Lightweight ping — returns the timestamp of the most recently modified
 // dealer record in the DB (any field: Achieved / Target / Status / Zone /
@@ -87,9 +127,24 @@ const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'super
 // stamp on Overview reflects real DB writes, not the page-load time.
 //
 // Salesmen see only their own dealers; staff see everyone.
+// ── GET /api/dealers/distinct-states ──────────────────────────────────────
+// Returns the unique state list across the dealer roster so the permission
+// editor can render a checkbox for each one. Superadmin only.
+router.get('/distinct-states', protect, async (req, res) => {
+  if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+  try {
+    const states = await Dealer.distinct('state');
+    res.json({ states: states.filter(s => s && s.trim()).sort() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/last-updated', protect, async (req, res) => {
   try {
-    const filter = isStaff(req) ? {} : { salesman: req.user.id };
+    const filter = await dealerScopeFilter(req);
     const latest = await Dealer.findOne(filter, { updatedAt: 1 })
       .sort({ updatedAt: -1 })
       .lean();
@@ -102,7 +157,9 @@ router.get('/last-updated', protect, async (req, res) => {
 
 router.get('/', protect, async (req, res) => {
   try {
-    const filter = isStaff(req)?{}:{salesman:req.user.id};
+    const filter = await dealerScopeFilter(req);
+    console.log('[DEALERS GET] user=%s role=%s filter=%s',
+      req.user.id, req.user.role, JSON.stringify(filter));
     const MO = req.query.mo?req.query.mo.split(','):[];
     const dealers = await Dealer.find(filter).lean();
     // Log a quick summary so we can see what's in DB on every fetch.

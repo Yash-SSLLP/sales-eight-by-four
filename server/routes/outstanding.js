@@ -24,7 +24,6 @@ const toPlain = (doc) => {
   return { _id:doc._id?.toString(), dealerName:doc.dealerName||'', monthlyOutstanding:mo };
 };
 
-// Staff = admin OR superadmin (both see all outstanding)
 const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
 
 router.get('/', protect, async (req, res) => {
@@ -34,8 +33,6 @@ router.get('/', protect, async (req, res) => {
     const Dealer = mongoose.models.Dealer;
     if (!Dealer) return res.json([]);
 
-    // Same priority order as the dealer route: explicit permissions win over
-    // the salesman-own-dealers default.
     const User = (await import('../models/User.js')).default;
     const u = await User.findOne({ id: req.user.id }, 'permissions').lean();
     const p = u?.permissions || {};
@@ -45,7 +42,7 @@ router.get('/', protect, async (req, res) => {
 
     let dealerFilter = {};
     if (hasStates || hasZones || hasSalesmen) {
-      // Case-insensitive state/zone match — see dealers.js for rationale.
+
       const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
       if (hasStates)   dealerFilter.state    = { $in: p.states.map(ciMatch) };
@@ -54,7 +51,7 @@ router.get('/', protect, async (req, res) => {
     } else if (req.user?.role === 'salesman') {
       dealerFilter = { salesman: req.user.id };
     } else {
-      // admin with no permissions → see everything
+
       return res.json(all.map(toPlain));
     }
     const myDealers = await Dealer.find(dealerFilter, 'name').lean();
@@ -64,14 +61,6 @@ router.get('/', protect, async (req, res) => {
 });
 
 router.post('/upload', protect, adminOnly, requireFeature('uploadData'), upload.single('file'), async (req,res) => {
-  // IMPORTANT (data safety contract):
-  //   This route ONLY touches the `Outstanding` collection (per-month amounts).
-  //   It NEVER touches `OutstandingFollowup` — your comments, "Did not pick"
-  //   entries, scheduled follow-up dates, etc. all live in that separate
-  //   collection and are completely preserved by this upload.
-  //   Additionally: a BLANK/empty cell in the sheet means "no change" for
-  //   that month — we only overwrite a month's amount when the sheet has a
-  //   non-blank value for it. To set a month to zero, write "0" explicitly.
   try {
     if(!req.file) return res.status(400).json({error:'file required'});
     const wb=XLSX.read(req.file.buffer,{type:'buffer'});
@@ -87,15 +76,13 @@ router.post('/upload', protect, adminOnly, requireFeature('uploadData'), upload.
       if(/^[\d\s,₹]+$/.test(dealerName)) continue;
       if(['total','totals','dealer name','name'].includes(dealerName.toLowerCase())) continue;
 
-      // Build the per-month patch. Blank cells are SKIPPED (preserved),
-      // explicit "0" is allowed (sets the month to zero).
       const mo={};
       monthCols.forEach(m => {
         const monthKey = m.trim();
         if(!monthKey) return;
         const raw = row[m];
         const sv  = (raw === null || raw === undefined) ? '' : String(raw).trim();
-        if(sv === ''){ results.skippedBlanks++; return; }     // blank cell — leave existing value alone
+        if(sv === ''){ results.skippedBlanks++; return; }
         const parsed = Math.round(parseFloat(sv.replace(/[^\d.-]/g,'')) || 0);
         mo[monthKey] = parsed;
       });
@@ -104,8 +91,7 @@ router.post('/upload', protect, adminOnly, requireFeature('uploadData'), upload.
         const rx=new RegExp(`^${dealerName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i');
         const ex=await Outstanding.findOne({dealerName:rx});
         if(ex){
-          // Merge: start with existing months, overlay only the non-blank cells from sheet.
-          // This preserves months the sheet doesn't mention AND preserves blanks.
+
           const merged={};
           if(ex.monthlyOutstanding instanceof Map) ex.monthlyOutstanding.forEach((v,k)=>{merged[k]=Number(v)||0;});
           else if(ex.monthlyOutstanding) Object.assign(merged,ex.monthlyOutstanding);
@@ -113,7 +99,7 @@ router.post('/upload', protect, adminOnly, requireFeature('uploadData'), upload.
           await Outstanding.findByIdAndUpdate(ex._id,{monthlyOutstanding:merged});
           results.updated++;
         } else {
-          // New dealer — only adds months that have values in the sheet
+
           await Outstanding.create({dealerName,monthlyOutstanding:mo});
           results.added++;
         }

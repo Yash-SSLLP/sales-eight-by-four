@@ -4,19 +4,12 @@ import { Avatar } from './UI';
 import { api } from '../api';
 import { notify, confirmDialog } from './Toast';
 
-// Note: `setUsers` updates the client-side users map; `onLoginAs(token, user, impersonatedBy?)`
-// is used by the superadmin "Login as" feature to swap the active JWT.
-//
-// `users` (prop) is the app-wide map of ACTIVE users (the rest of the app only
-// ever sees active users). For this admin screen we also need to see and
-// re-activate INACTIVE users, so we fetch a separate `allUsers` map via
-// `api.getUsersAll()` on mount and on every change.
 const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUsersChanged }) => {
-  // Full user map including inactive — used for display in this modal only.
+
   const [allUsers, setAllUsers] = useState(users || {});
   const refreshAll = async () => {
     try { setAllUsers(await api.getUsersAll()); }
-    catch(e) { /* fall back to active-only map already in state */ }
+    catch(e) {  }
   };
   useEffect(() => { refreshAll(); }, []);
   const [name,    setName]    = useState('');
@@ -27,9 +20,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
   const [color,   setColor]   = useState('#818cf8');
   const [busy,    setBusy]    = useState(false);
   const [msg,     setMsg]     = useState(null);
-  // State-based permissions for the new user. Empty array = no restriction
-  // (user sees every state). Pre-populate the list of states from the dealer
-  // roster on first open so the admin can tick the relevant ones.
+
   const [allStates,    setAllStates]    = useState([]);
   const [createStates, setCreateStates] = useState(new Set());
   useEffect(() => {
@@ -45,7 +36,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
 
   const flash = (type, text, ms = 3000) => { setMsg({type, text}); setTimeout(()=>setMsg(null), ms); };
 
-  // ── Create user (calls server) ──────────────────────────────────────────
   const create = async () => {
     const idC = id.trim().toLowerCase().replace(/\s+/g, '_');
     if(!name || !idC || !pass){ flash('error','Name, username and password required'); return; }
@@ -60,11 +50,10 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
       const ini = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
       const permissions = { states: [...createStates], zones: [], salesmen: [] };
       const newUser = await api.createUser({ id: idC, name, pass, role, color, ini, permissions });
-      // Optimistically update local cache for instant feedback…
+
       setUsers({ ...users, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true, permissions } });
       setAllUsers({ ...allUsers, [idC]: { id: idC, name, pass, role, color, ini, url: url.trim() || null, active:true, permissions } });
-      // …then trigger a server-side refresh so the new user appears with all
-      // server-side fields and persists across page reloads + other devices.
+
       onUsersChanged?.();
       refreshAll();
       setName(''); setId(''); setPass(''); setUrl(''); setRole('salesman'); setCreateStates(new Set());
@@ -74,7 +63,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } finally { setBusy(false); }
   };
 
-  // ── Edit a user (password, URL) ─────────────────────────────────────────
   const reset = async (uid) => {
     const np = prompt('New password for ' + allUsers[uid]?.name + ':');
     if(!np || np.length < 4){ if(np !== null) notify.error('Password must be at least 4 characters'); return; }
@@ -99,18 +87,12 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
-  // ── Edit data-access + feature permissions ─────────────────────────────
   const [permsForUid,    setPermsForUid]    = useState(null);
   const [permsStates,    setPermsStates]    = useState(new Set());
   const [permsFeatures,  setPermsFeatures]  = useState(new Set());
   const [permsSaving,    setPermsSaving]    = useState(false);
 
-  // App-section features the admin can grant. Keys must match the
-  // requireFeature() guards on the server.
   const FEATURE_OPTIONS = [
-    { key: 'monthlyEntry',     label: 'Monthly Entry',       desc: 'Edit per-dealer Achieved / Target, run the unified Excel upload' },
-    { key: 'manageMonths',     label: 'Manage Months',       desc: 'Dedupe dealers, normalize state/city, wipe month, repair targets' },
-    { key: 'uploadData',       label: 'Upload Data',         desc: 'Upload Outstanding Excel and other bulk imports' },
     { key: 'manageCategories', label: 'Manage Categories',   desc: 'Add/edit/delete categories + sub-categories in Admin Panel' },
   ];
 
@@ -141,7 +123,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } finally { setPermsSaving(false); }
   };
 
-  // ── Permissions debug — show what's actually saved + how many dealers match
   const debugPermissions = async (uid) => {
     try {
       const r = await api.userDebugScope(uid);
@@ -167,10 +148,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     }
   };
 
-  // ── Toggle active / inactive (soft disable) ────────────────────────────
-  // Inactive users can't log in and don't appear in salesman dropdowns or
-  // search, but all their historic data (sales, visits, leads, dealers)
-  // stays untouched in the DB.
   const toggleActive = async (uid) => {
     const u = allUsers[uid]; if(!u) return;
     const becomingActive = u.active === false;
@@ -189,7 +166,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     try {
       await api.updateUser(uid, { active: becomingActive });
       setAllUsers({ ...allUsers, [uid]: { ...u, active: becomingActive } });
-      // Parent's `users` map only contains active users — add/remove there too
+
       if(becomingActive){
         setUsers({ ...users, [uid]: { ...u, active: true } });
       } else {
@@ -200,10 +177,9 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } catch(e){ flash('error', (becomingActive ? 'Activate' : 'Deactivate') + ' failed: ' + e.message); }
   };
 
-  // ── Assign / change leave approver ──────────────────────────────────────
   const editApprover = async (uid) => {
     const current = allUsers[uid]?.approver || '';
-    // Approver pool = ACTIVE admins/superadmins only (don't suggest disabled ones)
+
     const list = Object.values(allUsers)
       .filter(u => u.id !== uid && u.active !== false && (u.role === 'admin' || u.role === 'superadmin'))
       .map(u => `${u.id} — ${u.name}`);
@@ -223,7 +199,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } catch(e){ flash('error', 'Update failed: ' + e.message); }
   };
 
-  // ── Remove user ─────────────────────────────────────────────────────────
   const remove = async (uid) => {
     if(uid === currentUser?.id){ flash('error', "Can't delete yourself"); return; }
     const okRm = await confirmDialog({ title:'Remove ' + (allUsers[uid]?.name || 'user') + '?', message:'This cannot be undone. Their historic records will remain in the DB but the login will be gone for good. (Use Deactivate instead if you might re-enable them later.)', confirmText:'Remove', danger:true });
@@ -237,7 +212,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     } catch(e){ flash('error', 'Delete failed: ' + e.message); }
   };
 
-  // ── Login as another user (superadmin only) ─────────────────────────────
   const loginAs = async (uid) => {
     if(!isSuperAdmin) return;
     if(uid === currentUser?.id) return;
@@ -260,7 +234,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     }
   };
 
-  // Allowed roles in the create form
   const createRoleOptions = isSuperAdmin
     ? [
         { v:'salesman',   label:'Salesman' },
@@ -271,8 +244,6 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
         { v:'salesman', label:'Salesman' },
       ];
 
-  // Group users for clearer display — show ACTIVE first, then INACTIVE at the
-  // bottom (so admins always see who's currently disabled).
   const sorted = Object.values(allUsers || {}).sort((a, b) => {
     const aA = a.active !== false ? 0 : 1;
     const bA = b.active !== false ? 0 : 1;
@@ -289,9 +260,8 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
     return                       { label:'SALESMAN',   color:'#86efac', bg:'rgba(34,197,94,0.12)', icon:null };
   };
 
-  // Can the current user manage this row's user?
   const canManage = (target) => {
-    if(target.id === currentUser?.id) return true; // can always edit self
+    if(target.id === currentUser?.id) return true;
     if(isSuperAdmin) return true;
     if(isAdmin && target.role === 'salesman') return true;
     return false;
@@ -324,7 +294,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
           }}>{msg.text}</div>
         )}
 
-        {/* ── User list ─────────────────────────────────────────────────── */}
+        {}
         <div style={{display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto', marginBottom:16}}>
           {sorted.map(u => {
             const isSelf = u.id === currentUser?.id;
@@ -374,7 +344,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                   </div>
                 </div>
 
-                {/* Action buttons */}
+                {}
                 {isSuperAdmin && !isSelf && (
                   <button onClick={()=>loginAs(u.id)} title={'Log in as ' + u.name}
                     style={{
@@ -451,7 +421,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
           })}
         </div>
 
-        {/* ── Create new user ───────────────────────────────────────────── */}
+        {}
         <div style={{paddingTop:14, borderTop:'1px solid var(--b1)'}}>
           <div style={{fontSize:14, fontWeight:600, marginBottom:10, display:'flex', alignItems:'center', gap:6}}>
             <UserPlus size={14}/> Create new user
@@ -493,7 +463,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
               </div>
             </div>
 
-            {/* ── Data Permissions ─ which states can this user see? ───── */}
+            {}
             <div className="field full">
               <label style={{display:'flex', alignItems:'center', gap:6}}>
                 <MapPin size={12}/> Data Permissions — States
@@ -544,7 +514,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
         </div>
       </div>
 
-      {/* ── Permissions modal (Edit existing user's data scope) ────────── */}
+      {}
       {permsForUid && (
         <div className="overlay" style={{zIndex: 60}} onClick={e => e.target === e.currentTarget && setPermsForUid(null)}>
           <div className="modal" style={{maxWidth: 480}}>
@@ -588,7 +558,7 @@ const UserManagement = ({ users, setUsers, currentUser, onClose, onLoginAs, onUs
                 })}
               </div>
             )}
-            {/* ── App-section feature toggles ─────────────────────── */}
+            {}
             <div style={{fontSize:11, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8, marginTop:4}}>
               App sections — grant access
             </div>

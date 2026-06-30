@@ -33,9 +33,7 @@ const dealerSchema = new mongoose.Schema({
   avg6m:        { type:Number, default:0 },
   monthlyData:  { type:Map, of:monthEntrySchema, default:{} },
   source:       { type:String, default:'sheet' },
-  // Auto-learned GPS location of the dealer's physical site. Set the first
-  // time a salesperson successfully checks in with GPS at this dealer; used
-  // afterwards to power "nearby dealer" suggestions on the Visits page.
+
   locLat:       { type:Number, default:null },
   locLng:       { type:Number, default:null },
   locUpdatedAt: { type:Date,   default:null },
@@ -70,30 +68,19 @@ const fmt = (d, MO=[]) => {
     monthsWithData, monthlyData:md,
     achieved:[...months].reverse().find(v=>v>0)||0,
     categoryBreakdown:{}, source:d.source||'db',
-    // Auto-learned GPS for nearby-dealer suggestions on the Visits page
+
     locLat:d.locLat ?? null,
     locLng:d.locLng ?? null,
     locUpdatedAt:d.locUpdatedAt || null,
   };
 };
 
-// Staff = admin OR superadmin (both see everything). Salesmen only see their own.
 const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
 
-// ── Build the role + permission scoped Mongo filter for dealer reads ──────
-// Logic (priority order):
-//   - superadmin → no filter, sees everything.
-//   - ANY user (salesman or admin) WITH explicit permissions set
-//     → use those permissions (states / zones / salesmen filter).
-//     This makes the permission system the source of truth when configured,
-//     including for salesmen who should expand beyond their own dealers.
-//   - salesman with NO permissions → default rule: see only own dealers.
-//   - admin with NO permissions → default rule: see everything.
 async function dealerScopeFilter(req) {
   const role = req.user?.role;
   if (role === 'superadmin') return {};
 
-  // Pull permissions from the DB (not the JWT — JWT doesn't carry them).
   let User;
   try { User = (await import('../models/User.js')).default; } catch { User = null; }
   const u = User ? await User.findOne({ id: req.user.id }, 'permissions').lean() : null;
@@ -104,32 +91,19 @@ async function dealerScopeFilter(req) {
 
   if (hasStates || hasZones || hasSalesmen) {
     const filt = {};
-    // Case-insensitive + whitespace-tolerant match for state/zone — so a
-    // saved permission of "Kerala" still matches dealer rows stored as
-    // "kerala", "KERALA", "Kerala " etc. Without this, mixed casing in
-    // legacy uploads causes the scope to return zero dealers.
+
     const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const ciMatch = v => new RegExp('^\\s*' + escape(v) + '\\s*$', 'i');
     if (hasStates)   filt.state    = { $in: p.states.map(ciMatch) };
     if (hasZones)    filt.zone     = { $in: p.zones.map(ciMatch) };
-    if (hasSalesmen) filt.salesman = { $in: p.salesmen };   // salesman ids are already lowercase
+    if (hasSalesmen) filt.salesman = { $in: p.salesmen };
     return filt;
   }
-  // No explicit permissions configured — fall back to role default.
+
   if (role === 'salesman') return { salesman: req.user.id };
-  return {};   // admin with no permissions = see everything
+  return {};
 }
 
-// ── GET /api/dealers/last-updated ─────────────────────────────────────────
-// Lightweight ping — returns the timestamp of the most recently modified
-// dealer record in the DB (any field: Achieved / Target / Status / Zone /
-// City / etc.). The client polls this every minute so the "Last updated"
-// stamp on Overview reflects real DB writes, not the page-load time.
-//
-// Salesmen see only their own dealers; staff see everyone.
-// ── GET /api/dealers/distinct-states ──────────────────────────────────────
-// Returns the unique state list across the dealer roster so the permission
-// editor can render a checkbox for each one. Superadmin only.
 router.get('/distinct-states', protect, async (req, res) => {
   if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin only' });
@@ -162,13 +136,12 @@ router.get('/', protect, async (req, res) => {
       req.user.id, req.user.role, JSON.stringify(filter));
     const MO = req.query.mo?req.query.mo.split(','):[];
     const dealers = await Dealer.find(filter).lean();
-    // Log a quick summary so we can see what's in DB on every fetch.
-    // Helpful to confirm uploads actually persisted between requests.
+
     const monthsInDb = new Set();
     dealers.forEach(d => {
       const md = d.monthlyData;
       if(!md) return;
-      // Mongoose .lean() returns a plain object for Map fields
+
       Object.keys(md).forEach(k => monthsInDb.add(k));
     });
     console.log(`[DEALERS GET] user=${req.user.id} returned=${dealers.length} dealers · months_in_DB=[${[...monthsInDb].sort().join(',')}] · MO_query=[${MO.join(',')}]`);
@@ -179,17 +152,12 @@ router.get('/', protect, async (req, res) => {
 router.post('/upload', protect, upload.single('file'), async (req,res) => {
   try {
     const {month, salesman:uploadSm} = req.body;
-    // smId is the "default" salesman if no per-row Salesman column is present.
-    // Staff (admin/superadmin) may pick a salesman, OR send '_all' / '' to ask
-    // the server to read a per-row Salesman column from the file.
+
     const isAllMode = isStaff(req) && (uploadSm === '_all' || uploadSm === 'all' || !uploadSm);
     const smId = isStaff(req)?(uploadSm && uploadSm!=='_all' && uploadSm!=='all' ? uploadSm : req.user.id):req.user.id;
     if(!month) return res.status(400).json({error:'month required'});
     if(!req.file) return res.status(400).json({error:'No file'});
 
-    // Build a {normalized-name → user.id} map for routing rows when the file
-    // includes a Salesman column (All-Salesmen upload). We compare on the
-    // lowercased, space-stripped form so "Rakesh Boriwal" matches "RAKESH BORIWAL".
     let nameToId = null;
     if(isAllMode){
       const User = mongoose.models.User || (await import('../models/User.js')).default;
@@ -199,7 +167,7 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
         for(const u of allUsers){
           const norm = (u.name||'').toLowerCase().replace(/\s+/g,' ').trim();
           if(norm) nameToId.set(norm, u.id);
-          // Also map by id itself in case someone wrote the id in the column.
+
           nameToId.set((u.id||'').toLowerCase(), u.id);
         }
       }
@@ -217,7 +185,6 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
       const name=find('dealername','dealer name','name','party','firm');
       if(!name||name.length<2||/^[\d\s,]+$/.test(name)){results.skipped++;continue;}
 
-      // Per-row salesman resolution
       let rowSm = smId;
       if(isAllMode){
         const rawSm = find('salesman','sales man','sm');
@@ -227,7 +194,7 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
           if(found) rowSm = found;
           else { results.skipped++; results.errors.push(`${name}: unknown salesman "${rawSm}"`); continue; }
         } else {
-          // All mode but no Salesman column on row — skip to avoid mis-assigning
+
           results.skipped++; results.errors.push(`${name}: missing Salesman column`); continue;
         }
       }
@@ -237,38 +204,26 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
         const rx=new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i');
         const ex=await Dealer.findOne({name:rx,salesman:rowSm});
         if(ex){
-          // EXPLICIT PERSISTENCE: load, mutate, save.
-          // Using findByIdAndUpdate with dotted Map paths sometimes silently
-          // fails to write Mongoose Map entries. The load-mutate-save flow
-          // below is more reliable for Map<string, schema>.
+
           if(!ex.monthlyData) ex.monthlyData = new Map();
           ex.monthlyData.set(month, monthData);
-          ex.markModified('monthlyData');     // force Mongoose to write the Map
+          ex.markModified('monthlyData');
           if(monthData.city)   ex.city = monthData.city;
           if(monthData.state)  ex.state = monthData.state;
           if(monthData.zone)   ex.zone = monthData.zone;
-          // IMPORTANT: Do NOT auto-seed ex.target from this month's target.
-          // Earlier code did `if(ex.target === 0) ex.target = monthData.target`
-          // which leaked June's target into May's display (May's target fallback
-          // uses d.target when no per-month target exists). The global target
-          // should only ever be set by the initial sheet sync, NEVER by a
-          // monthly upload — those go ONLY into monthlyData.<month>.target.
+
           ex.source = 'upload';
           await ex.save();
           results.updated++;
           bump('updated', rowSm);
         } else {
-          // New dealer created by monthly upload.
-          // IMPORTANT: do NOT seed the global target from this month's target.
-          // That would cause this month's value to leak to other months via
-          // the smart-target fallback. The per-month target lives in
-          // monthlyData[month].target where it belongs.
+
           await Dealer.create({
             name, salesman:rowSm,
             city:monthData.city||'', state:monthData.state||'', zone:monthData.zone||'',
             status:monthData.status||'ACTIVE',
             category:monthData.category||'', categoryType:monthData.categoryType||'',
-            target: 0,   // leave baseline empty; only sheet-sync seeds it
+            target: 0,
             monthlyData:{[month]:monthData},
             source:'upload',
           });
@@ -280,9 +235,9 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
         results.errors.push(`${name}: ${e.message}`);
       }
     }
-    // Summary log: confirms persistence and helps trace data-loss issues.
+
     console.log(`[UPLOAD] month=${month} mode=${isAllMode?'ALL':'single('+smId+')'} added=${results.added} updated=${results.updated} skipped=${results.skipped} errors=${results.errors.length} total=${rows.length}`);
-    // Verify only for single-salesman uploads (counting per-row in all-mode is noisy)
+
     if(!isAllMode){
       try {
         const verifyCount = await Dealer.countDocuments({
@@ -300,25 +255,12 @@ router.post('/upload', protect, upload.single('file'), async (req,res) => {
   }
 });
 
-// ── POST /api/dealers/delete-by-source — admin only ───────────────────────
-// Deletes every Dealer where `source` equals the value sent in the body.
-// Use this to undo a bad bulk-upload that mis-created dealers — e.g. the
-// category-wise Excel upload tags new dealers with source='cat-upload', so
-// posting { source:'cat-upload' } removes ONLY those, leaving your original
-// roster (source='sheet' / 'manual' / etc.) untouched.
-//
-// Before deleting, Sale rows that reference each removed dealer (by id OR by
-// name) are re-pointed at a same-named dealer in the surviving set if one
-// exists — so per-category sales history isn't lost.
-//
-// Body: { source:'cat-upload', dryRun:true|false }
 router.post('/delete-by-source', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const source = String(req.body?.source || '').trim();
     if (!source) return res.status(400).json({ error: 'source required' });
     const dryRun = req.body?.dryRun === true;
 
-    // Find dealers to delete + the surviving canonical set
     const toDelete = await Dealer.find({ source }).lean();
     const survivors = await Dealer.find({ source: { $ne: source } }, { name:1, salesman:1, _id:1 }).lean();
     const survivorByLowerName = new Map();
@@ -333,7 +275,7 @@ router.post('/delete-by-source', protect, adminOnly, requireFeature('manageMonth
     if (!dryRun && Sale && toDelete.length) {
       for (const d of toDelete) {
         const canon = survivorByLowerName.get(String(d.name).toLowerCase().trim());
-        if (!canon) continue;     // no canonical → leave sale rows by name; they'll still show in aggregates
+        if (!canon) continue;
         const r = await Sale.updateMany(
           { $or: [{ dealerId: d._id }, { dealerName: d.name }] },
           { $set: { dealerName: canon.name, dealerId: canon._id } }
@@ -367,24 +309,10 @@ router.post('/delete-by-source', protect, adminOnly, requireFeature('manageMonth
   }
 });
 
-// ── POST /api/dealers/cleanup-suffix-dupes — admin only ───────────────────
-// Removes dealers whose name is "<canonical name> <salesman first name>"
-// (or "<canonical name>_<salesman first name>", etc.), where a canonical
-// shorter-named dealer with the same salesman already exists.
-//
-// Examples we'll catch:
-//   "76 EAST pranav"               → duplicate of "76 EAST"     (salesman: Pranav)
-//   "A AND M INTERIO LLP ratish"   → duplicate of "A AND M INTERIO LLP"
-//   "A C FRANCIS SONS rakesh"      → duplicate of "A C FRANCIS SONS"
-//
-// Sale rows belonging to the duplicate are migrated to the canonical dealer
-// first, then the duplicate is deleted.
-// Body: { dryRun:true|false }
 router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
 
-    // Build a set of every salesman's first name (lower-cased)
     let User;
     try { User = (await import('../models/User.js')).default; } catch { User = null; }
     const userDocs = User ? await User.find({}, { name:1, id:1 }).lean() : [];
@@ -395,8 +323,7 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageM
       const first = name.split(/\s+/)[0].toLowerCase();
       if (first.length >= 2) salesmanFirstNames.add(first);
     }
-    // Also pull salesman tokens straight off the dealer rows (covers cases
-    // where the user typed a name we don't have in the User collection).
+
     const allDealers = await Dealer.find({}, { name:1, salesman:1, _id:1 }).lean();
     for (const d of allDealers) {
       const s = String(d.salesman || '').trim();
@@ -405,27 +332,23 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageM
       if (first.length >= 2) salesmanFirstNames.add(first);
     }
 
-    // Index dealers by (salesman, normalized-name) for quick lookup of the canonical row
     const normalize = s => (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
     const bySalesAndName = new Map();
     for (const d of allDealers) {
       bySalesAndName.set((d.salesman || '__none') + '|' + normalize(d.name), d);
     }
 
-    // Try to load the Sale model so we can migrate sales before deleting
     let Sale = null;
     try { Sale = (await import('../models/Sale.js')).default; } catch {}
 
     const candidates = [];
     for (const d of allDealers) {
       const nameLow = String(d.name || '').toLowerCase().trim();
-      // skip if no trailing word
+
       const parts = nameLow.split(/\s+/);
       if (parts.length < 2) continue;
       const lastWord = parts[parts.length - 1];
 
-      // Only treat the last word as a "salesman suffix" if it matches a known
-      // salesman first name AND a shorter canonical sibling exists.
       if (!salesmanFirstNames.has(lastWord)) continue;
 
       const shortName = parts.slice(0, -1).join(' ');
@@ -443,7 +366,7 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageM
     let migrated = 0, deleted = 0;
     if (!dryRun) {
       for (const c of candidates) {
-        // 1. Move any Sale rows from dupe → canonical (by id and by name).
+
         if (Sale) {
           const r = await Sale.updateMany(
             { $or: [{ dealerId: c.dupeId }, { dealerName: c.dupeName }] },
@@ -451,7 +374,7 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageM
           );
           migrated += r.modifiedCount || 0;
         }
-        // 2. Delete the duplicate dealer
+
         await Dealer.findByIdAndDelete(c.dupeId);
         deleted++;
       }
@@ -474,15 +397,6 @@ router.post('/cleanup-suffix-dupes', protect, adminOnly, requireFeature('manageM
   }
 });
 
-// ── POST /api/dealers/dedupe — admin only ──────────────────────────────────
-// Finds dealers that have the same salesman + normalized name (case &
-// whitespace insensitive). For each duplicate group:
-//   1. Keep the dealer with the MOST monthlyData entries (canonical)
-//   2. Merge other duplicates' monthlyData into canonical (only for months
-//      canonical doesn't already have)
-//   3. Delete the duplicate records
-// Returns: { dealersScanned, groupsFound, duplicatesRemoved, sample[] }
-// Pass {dryRun:true} in body to preview without changes.
 router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
@@ -500,7 +414,7 @@ router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async
       const grp = groups[key];
       if(grp.length <= 1) continue;
       groupsFound++;
-      // Sort: most monthlyData first, then most recent updatedAt
+
       grp.sort((a, b) => {
         const aCount = a.monthlyData ? (a.monthlyData.size ?? Object.keys(a.monthlyData || {}).length) : 0;
         const bCount = b.monthlyData ? (b.monthlyData.size ?? Object.keys(b.monthlyData || {}).length) : 0;
@@ -518,7 +432,7 @@ router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async
         });
       }
       if(!dryRun){
-        // Merge missing months from duplicates into canonical
+
         let canonicalModified = false;
         for(const dup of dupes){
           if(!dup.monthlyData) continue;
@@ -533,7 +447,7 @@ router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async
           canonical.markModified('monthlyData');
           await canonical.save();
         }
-        // Delete the duplicates
+
         for(const dup of dupes){
           await Dealer.findByIdAndDelete(dup._id);
           duplicatesRemoved++;
@@ -550,32 +464,13 @@ router.post('/dedupe', protect, adminOnly, requireFeature('manageMonths'), async
   }
 });
 
-// ── POST /api/dealers/dedupe-stripped — admin only ─────────────────────────
-// Like /dedupe, but with much more aggressive name normalization: lowercase
-// + strip EVERY non-alphanumeric character. This catches duplicates where
-// the names differ only by spaces / punctuation, e.g. "1000 KITCHENS
-// INTERIORS" vs "1000KITCHENSINTERIORS" (a classic outcome of uploading an
-// Excel whose names were exported without spaces).
-//
-// For each group:
-//   1. Sort: dealers whose source is NOT 'cat-upload' come first (we want
-//      to keep the ORIGINAL, pre-upload dealer as canonical), then by most
-//      monthlyData, then most recent updatedAt.
-//   2. Migrate every Sale row from each duplicate to the canonical.
-//   3. Merge monthlyData — copy a month from a duplicate only when the
-//      canonical's entry is missing OR is empty (achieved + target == 0).
-//   4. Delete the duplicates.
-//
-// Body: { dryRun:true|false }
 router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
     const all = await Dealer.find({});
-    // Aggressive normalization — collapses spaces, punctuation, case
+
     const strip = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    // Group by (salesman, stripped-name). Same name across different
-    // salesmen stays as separate groups (that's a legitimate cross-rep
-    // scenario, not a duplicate).
+
     const groups = new Map();
     for (const d of all) {
       const key = strip(d.salesman) + '|' + strip(d.name);
@@ -585,7 +480,6 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
       }
     }
 
-    // Try to load Sale model for migration
     let Sale = null;
     try { Sale = (await import('../models/Sale.js')).default; } catch {}
 
@@ -597,8 +491,7 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
     for (const [key, grp] of groups) {
       if (grp.length <= 1) continue;
       groupsFound++;
-      // Prefer dealers whose source is NOT 'cat-upload' (the originals),
-      // then those with the most months of history, then most recent updates.
+
       grp.sort((a, b) => {
         const aUpload = a.source === 'cat-upload' ? 1 : 0;
         const bUpload = b.source === 'cat-upload' ? 1 : 0;
@@ -627,7 +520,7 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
       }
 
       if (!dryRun) {
-        // 1. Migrate Sale rows from every dupe → canonical
+
         if (Sale) {
           const dupeIds   = dupes.map(d => String(d._id));
           const dupeNames = dupes.map(d => d.name);
@@ -641,8 +534,6 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
           salesMigrated += r.modifiedCount || 0;
         }
 
-        // 2. Merge monthlyData — accept the duplicate's value only when the
-        // canonical doesn't have one or its entry is empty.
         let canonicalModified = false;
         const canonicalIsMap = canonical.monthlyData instanceof Map;
         const cmGet = k => canonicalIsMap ? canonical.monthlyData.get(k) : canonical.monthlyData?.[k];
@@ -669,7 +560,6 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
           await canonical.save();
         }
 
-        // 3. Delete duplicates
         for (const dup of dupes) {
           await Dealer.findByIdAndDelete(dup._id);
           duplicatesRemoved++;
@@ -695,15 +585,6 @@ router.post('/dedupe-stripped', protect, adminOnly, requireFeature('manageMonths
   }
 });
 
-// ── POST /api/dealers/normalize-city-state — admin only ───────────────────
-// Re-writes every dealer's city + state in a uniform format:
-//   - trim leading / trailing whitespace
-//   - collapse internal whitespace to a single space
-//   - convert to Title Case (first letter of every word upper)
-// So "BANGALORE", "bangalore ", "Bangalore" all become "Bangalore".
-//
-// Skips rows already in canonical form. Does NOT touch any other field.
-// Body: { dryRun:true|false }
 router.post('/normalize-city-state', protect, adminOnly, requireFeature('manageMonths'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
@@ -754,7 +635,7 @@ router.post('/normalize-city-state', protect, adminOnly, requireFeature('manageM
       cityFixed,
       stateFixed,
       sample,
-      // Top 10 messy city/state values (for the user to skim)
+
       messyCities: [...cityBefore.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10),
       messyStates: [...stateBefore.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10),
     });
@@ -764,17 +645,11 @@ router.post('/normalize-city-state', protect, adminOnly, requireFeature('manageM
   }
 });
 
-// ── DELETE /api/dealers/month/:label — admin only (DESTRUCTIVE) ────────────
-// Removes the monthlyData entry for the given label (e.g., "Jun-26") from
-// EVERY dealer. Use this when removing a future/empty month so that re-adding
-// it later starts truly empty (no stale data resurrects). Returns the number
-// of dealers touched.
 router.delete('/month/:label', protect, adminOnly, async (req, res) => {
   try {
     const label = (req.params.label || '').trim();
     if(!label) return res.status(400).json({ error:'month label required' });
 
-    // $unset the dotted-path key from each dealer that has it.
     const result = await Dealer.updateMany(
       { ['monthlyData.' + label]: { $exists: true } },
       { $unset: { ['monthlyData.' + label]: '' } }
@@ -787,10 +662,6 @@ router.delete('/month/:label', protect, adminOnly, async (req, res) => {
   }
 });
 
-// ── POST /api/dealers/wipe-all — SUPERADMIN ONLY (DESTRUCTIVE) ─────────────
-// Deletes ALL dealer records. Use to start fresh. Locked to superadmin only
-// — a regular admin can't trigger this even via direct API call. Requires
-// explicit confirm in the request body to prevent accidents.
 router.post('/wipe-all', protect, superAdminOnly, async (req, res) => {
   try {
     if(req.body?.confirm !== 'YES_WIPE_ALL'){
@@ -808,17 +679,6 @@ router.post('/wipe-all', protect, superAdminOnly, async (req, res) => {
   }
 });
 
-// ── POST /api/dealers/repair-targets — admin only ─────────────────────────
-// One-time repair tool: copies the dealer's global `target` field into
-// monthlyData[m].target for every month that has achievement > 0 but no
-// per-month target stored. This back-fills historical Sheets-imported data
-// so each month shows its own target (and we can stop relying on the
-// global-target fallback that was getting corrupted by monthly uploads).
-//
-// Returns: { dealersScanned, monthsBackfilled, sample[] }
-// POST /api/dealers/rename-recently-inactive — admin tool. Replaces every
-// dealer status equal to "RECENTLY INACTIVE" (and minor variants) with
-// "REACTIVE", both on the top-level status field and inside monthlyData.
 router.post('/rename-recently-inactive', protect, adminOnly, async (req, res) => {
   try {
     const variants = ['RECENTLY INACTIVE','Recently Inactive','recently inactive','RECENTLY_INACTIVE'];
@@ -826,7 +686,7 @@ router.post('/rename-recently-inactive', protect, adminOnly, async (req, res) =>
       { status: { $in: variants } },
       { $set: { status: 'REACTIVE' } },
     );
-    // Walk monthlyData inside each dealer that still has the old value
+
     const cursor = Dealer.find({ 'monthlyData': { $exists: true } }).cursor();
     let monthsTouched = 0, dealersTouched = 0;
     for await (const d of cursor){
@@ -873,7 +733,7 @@ router.post('/repair-targets', protect, adminOnly, async (req, res) => {
         const ach = Number(entry?.achieved) || 0;
         const tgt = Number(entry?.target) || 0;
         if(ach > 0 && tgt === 0){
-          // back-fill this month's target from the global
+
           updates[`monthlyData.${m}.target`] = globalT;
           monthsBackfilled++;
           if(sample.length < 8) sample.push({ dealer:d.name, salesman:d.salesman, month:m, target:globalT });
@@ -891,19 +751,14 @@ router.post('/repair-targets', protect, adminOnly, async (req, res) => {
 });
 
 router.post('/sync-db', protect, adminOnly, async (req,res) => {
-  // CRITICAL: This route MERGES per-month data into each dealer instead of
-  // replacing the entire monthlyData map. Why: a previous version did
-  // `$set: { monthlyData }` which wiped out any months you'd uploaded manually
-  // via Monthly Entry / Manage Months that weren't in the source sheet.
-  // Now we only $set monthlyData.<month> for months the sheet provides — all
-  // other months in the dealer's DB record stay untouched.
+
   try {
     const { dealers, MO } = req.body;
     if(!dealers?.length) return res.status(400).json({ error: 'No dealers' });
     let saved = 0, errors = 0, monthsTouched = 0;
     for(const d of dealers){
       try {
-        // Build the per-month entries we got from the sheet payload
+
         const monthsToWrite = {};
         (MO || []).forEach((m, i) => {
           const ach = Number(d.months?.[i]) || 0;
@@ -922,10 +777,6 @@ router.post('/sync-db', protect, adminOnly, async (req,res) => {
           }
         });
 
-        // Build a $set update that ONLY touches the dealer's basic fields +
-        // the specific months the sheet has data for. We use dotted paths
-        // (monthlyData.<month>) so MongoDB only modifies those map entries
-        // and leaves every other month intact.
         const update = {
           name: d.name,
           salesman: d.salesman,
@@ -940,11 +791,9 @@ router.post('/sync-db', protect, adminOnly, async (req,res) => {
           creditLimit: Number(d.creditLimit) || 0,
           source: 'sheet',
         };
-        // Seed the global baseline target only the FIRST time (when it's empty
-        // on the dealer record). Don't overwrite a manually-set baseline.
+
         if(d.target && Number(d.target) > 0){
-          // existing doc check happens via the upsert query; the actual guard
-          // is below via a $setOnInsert + conditional $set
+
         }
         Object.entries(monthsToWrite).forEach(([m, entry]) => {
           update[`monthlyData.${m}`] = entry;
@@ -953,9 +802,6 @@ router.post('/sync-db', protect, adminOnly, async (req,res) => {
 
         const rx = new RegExp(`^${d.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
-        // Two-phase write to avoid overwriting a manually-set global target:
-        //   1. Upsert with $setOnInsert for target — only applied on insert
-        //   2. $set everything else
         await Dealer.findOneAndUpdate(
           { name: rx, salesman: d.salesman },
           {
@@ -970,9 +816,7 @@ router.post('/sync-db', protect, adminOnly, async (req,res) => {
         console.error('[SYNC-DB] dealer error:', d.name, e.message);
       }
     }
-    // Summary: show which months from MO were actually touched vs preserved.
-    // A month is "touched" if at least one dealer's payload had non-zero
-    // achieved/target for it. All other months in MO stay UNTOUCHED in DB.
+
     const monthsInPayload = new Set();
     dealers.forEach(d => {
       (MO || []).forEach((m, i) => {

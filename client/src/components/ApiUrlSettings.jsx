@@ -63,7 +63,7 @@ export default function ApiUrlSettings({ onClose }) {
             Where is the Sales Tracker server running? Enter the full URL including <code style={{background:'var(--bg2)', padding:'1px 4px', borderRadius:3}}>/api</code> at the end.
             Examples:
             <ul style={{margin:'6px 0 0 16px', padding:0, color:'var(--t3)'}}>
-              <li>https://salestracker.yourdomain.com/api</li>
+              <li>https://yourdomain.com/api</li>
               <li>http://192.168.1.5:5000/api &nbsp;(same WiFi)</li>
             </ul>
           </div>

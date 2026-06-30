@@ -1,15 +1,11 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { protect, adminOnly } from '../middleware/auth.js';
-// IMPORTANT: import the canonical schema from models/Outstandingfollowup.js
-// so new fields like `paymentProof`, `collectedAt`, `collectedAmount` are
-// recognised by Mongoose. Declaring the schema inline here used to cause it
-// to silently strip unknown fields on update.
+import { protect, adminOnly, superAdminOnly } from '../middleware/auth.js';
+
 import OutstandingFollowup from '../models/Outstandingfollowup.js';
 
 const router = express.Router();
 
-// Staff = admin OR superadmin (both see all follow-ups)
 const isStaff = (req) => req.user?.role === 'admin' || req.user?.role === 'superadmin';
 
 router.get('/', protect, async (req,res) => {
@@ -56,11 +52,11 @@ router.post('/', protect, async (req,res) => {
 router.put('/:id', protect, async (req,res) => {
   try {
     const patch = { ...req.body };
-    // Reject oversized payment-proof images (5 MB cap)
+
     if(patch.paymentProof && patch.paymentProof.length > 5 * 1024 * 1024){
       return res.status(413).json({ error:'Payment proof too large (compress before upload)' });
     }
-    // Stamp collectedAt when status flips to 'done'
+
     if(patch.status === 'done'){
       patch.collectedAt = patch.collectedAt || new Date();
     }
@@ -74,11 +70,7 @@ router.delete('/:id', protect, async (req,res) => {
   catch(e){res.status(500).json({error:e.message});}
 });
 
-// ── DELETE /api/followups (no id) — admin only, DESTRUCTIVE ───────────────
-// One-time wipe of every follow-up so the user can start fresh under the new
-// month-tagged scheme. Outstanding amounts (the `Outstanding` collection)
-// are NOT touched.
-router.delete('/', protect, adminOnly, async (req,res) => {
+router.delete('/', protect, superAdminOnly, async (req,res) => {
   try {
     const r = await OutstandingFollowup.deleteMany({});
     console.log(`[FOLLOWUPS WIPE] deleted=${r.deletedCount}`);

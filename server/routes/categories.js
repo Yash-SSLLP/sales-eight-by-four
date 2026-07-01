@@ -87,22 +87,30 @@ router.post('/seed-defaults', protect, adminOnly, async (req, res) => {
 /* ---------- helpers ---------- */
 function escapeRegex(s){ return String(s).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'); }
 
-/** Default seed used both by the boot script and the admin endpoint above. */
+/**
+ * Default seed used both by the boot script and the admin endpoint above.
+ *
+ * `subs`   — the product types that must exist under the category.
+ * `remove` — deprecated product-type names to prune (renamed/retired types).
+ *            Kept explicit so the seed can be idempotent and self-healing
+ *            without wiping product types an admin has added by hand.
+ */
 export const DEFAULT_TAXONOMY = [
   { name: 'DECORATIVE - SPECIAL', subs: ['DECORATIVE - SPECIAL'] },
-  { name: 'EDGE BANDING',         subs: ['EDGE BANDING'] },
+  { name: 'EDGE BANDING',         subs: ['EDGE'],                            remove: ['EDGE BANDING'] },
   { name: 'FOLDERS',              subs: ['FOLDER'] },
-  { name: 'LAMINATE',             subs: ['0.92 LAM', '1 MM'] },
-  { name: 'LINER',                subs: ['FABRIC .8 LINER'] },
-  { name: 'LOUVRES',              subs: ['BAMBOO', 'CHARCOAL'] },
-  { name: 'OTHER',                subs: ['OTHER'] },
-  { name: 'POLYMER SHEET',        subs: ['ACRYLIC', 'GAG', 'MCS', 'POLYMER SHEET', 'THERMOLAM'] },
-  { name: 'ROLLS',                subs: ['VOWEL VINYL ROLL', 'WEAVED CANE'] },
+  { name: 'LAMINATE',             subs: ['1 MM', 'OMBRE'],                   remove: ['0.92 LAM'] },
+  { name: 'LINER',                subs: ['LINER'],                           remove: ['FABRIC .8 LINER'] },
+  { name: 'LOUVRES',              subs: ['CANE', 'CHARCOL'],                 remove: ['BAMBOO', 'CHARCOAL'] },
+  { name: 'OTHER',                subs: ['NON LAMINATES'],                   remove: ['OTHER'] },
+  { name: 'POLYMER SHEET',        subs: ['GAG', 'MCS', 'PVC', 'TESLINE', 'TLM'], remove: ['ACRYLIC', 'POLYMER SHEET', 'THERMOLAM'] },
+  { name: 'ROLLS',                subs: ['TWILE', 'THREAD'],                 remove: ['VOWEL VINYL ROLL', 'WEAVED CANE'] },
 ];
 
 export async function seedDefaultCategories() {
   let inserted = 0, updated = 0;
   for (const t of DEFAULT_TAXONOMY) {
+    const removeSet = new Set((t.remove || []).map(n => n.toLowerCase()));
     let cat = await Category.findOne({ name: new RegExp(`^${escapeRegex(t.name)}$`, 'i') });
     if (!cat) {
       cat = await Category.create({
@@ -112,8 +120,17 @@ export async function seedDefaultCategories() {
       });
       inserted++;
     } else {
-      const have = new Set((cat.subCategories || []).map(s => s.name.toLowerCase()));
       let dirty = false;
+      // Prune deprecated / renamed product types.
+      if (removeSet.size) {
+        const before = cat.subCategories.length;
+        cat.subCategories = cat.subCategories.filter(
+          s => !removeSet.has(s.name.toLowerCase())
+        );
+        if (cat.subCategories.length !== before) dirty = true;
+      }
+      // Add any missing product types from the default list.
+      const have = new Set((cat.subCategories || []).map(s => s.name.toLowerCase()));
       for (const s of t.subs) {
         if (!have.has(s.toLowerCase())) {
           cat.subCategories.push({ name: s });

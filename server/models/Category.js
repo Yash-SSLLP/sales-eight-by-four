@@ -8,8 +8,8 @@ import mongoose from 'mongoose';
  * the relationship cheap to read.
  *
  * Examples:
- *   { name: 'LAMINATE',      subCategories: [ { name: '0.92 LAM' }, { name: '1 MM' } ] }
- *   { name: 'POLYMER SHEET', subCategories: [ { name: 'ACRYLIC' }, { name: 'GAG' }, ... ] }
+ *   { name: 'LAMINATE',      subCategories: [ { name: '1 MM' }, { name: 'OMBRE' } ] }
+ *   { name: 'POLYMER SHEET', subCategories: [ { name: 'GAG' }, { name: 'MCS' }, ... ] }
  */
 
 const SubCategorySchema = new mongoose.Schema({

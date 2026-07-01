@@ -104,7 +104,7 @@ const ManageCategories = ({ currentUser }) => {
   const reseed = async () => {
     const ok = await confirmDialog({
       title: 'Re-seed default taxonomy?',
-      message: 'This will add any missing categories from the default list (LAMINATE, POLYMER SHEET, ROLLS, …). Existing entries are kept.',
+      message: 'This adds any missing categories/product types from the default list (LAMINATE, POLYMER SHEET, ROLLS, …) and removes retired ones (e.g. 0.92 LAM, BAMBOO, WEAVED CANE). Your own custom product types are kept.',
     });
     if(!ok) return;
     try { const r = await api.categoriesSeed(); await load(); notify.success(`Seeded → ${r.inserted} new, ${r.updated} updated`); }

@@ -80,7 +80,7 @@ router.get('/template', protect, async (req, res) => {
     [''],
     ['Sheet "Sales Data":'],
     ['  Row 1 = Section headers ("Dealer Info" / each Category / "Total")'],
-    ['  Row 2 = Field names (Dealer Name, Salesman, City, …, 0.92 LAM, 1 MM, …, Grand Total)'],
+    ['  Row 2 = Field names (Dealer Name, Salesman, City, …, 1 MM, OMBRE, …, Grand Total)'],
     ['  Row 3+ = ONE row per dealer.'],
     [''],
     ['Column A = Dealer ID — HIDDEN. DO NOT EDIT or DELETE these values.'],

@@ -6,7 +6,7 @@ import { notify } from './Toast';
 /**
  * SalesUpload — admin uploads the wide-format Excel:
  *   ┌───────────────┬──────────────┬─────────┬───────┬─────┬────────┐
- *   │ Company Name  │ Sales Person │ 0.92 LAM│ 1 MM  │ ... │ Grand  │
+ *   │ Company Name  │ Sales Person │  1 MM   │ OMBRE │ ... │ Grand  │
  *   ├───────────────┼──────────────┼─────────┼───────┼─────┼────────┤
  *   │ A & M INTERIO │ Ratish Das   │         │  16   │  3  │   19   │
  *   └───────────────┴──────────────┴─────────┴───────┴─────┴────────┘

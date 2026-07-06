@@ -24,7 +24,37 @@ const givenSchema = new mongoose.Schema({
 const Sample      = mongoose.models.Sample      || mongoose.model('Sample', sampleSchema);
 const SampleGiven = mongoose.models.SampleGiven || mongoose.model('SampleGiven', givenSchema);
 
+// ── Party-sample master ──────────────────────────────────────────────────────
+// A flat dump of "which party already holds which samples", uploaded from the
+// "Party Name | Screen Name | Total" Excel. partyCode (SSLxxxxx) is the party
+// identity; sampleName is the "Screen Name"; qty is the "Total".
+const partySampleSchema = new mongoose.Schema({
+  partyCode:  { type:String, default:'', index:true },
+  partyName:  { type:String, default:'' },   // cleaned name, code stripped
+  sampleName: { type:String, required:true },
+  qty:        { type:Number, default:1 },
+},{ timestamps:true });
+partySampleSchema.index({ partyCode:1, sampleName:1 });
+const PartySample = mongoose.models.PartySample || mongoose.model('PartySample', partySampleSchema);
+
 const today = () => new Date().toISOString().slice(0,10);
+
+// Normalize a party/dealer name for matching (case + whitespace insensitive).
+const normName = (s) => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+// Build a case-insensitive, whitespace-flexible exact-match regex for a name,
+// so "A P TRADERS-SSL15183" matches regardless of casing or double spaces.
+const exactNameRx = (s) => new RegExp(
+  '^' + String(s||'').trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\s+/g,'\\s+') + '$',
+  'i'
+);
+// Split "A.V. INTERIOR SOLUTIONS-SSL16566" → { name:'A.V. INTERIOR SOLUTIONS', code:'SSL16566' }.
+const splitParty = (raw) => {
+  const s = String(raw||'').trim();
+  const m = s.match(/(SSL\d+)\s*$/i);
+  const code = m ? m[1].toUpperCase() : '';
+  const name = (m ? s.slice(0, m.index) : s).replace(/[-–—\s]+$/,'').trim();
+  return { name, code };
+};
 
 // GET /api/samples — get all samples (optionally filter by zone)
 router.get('/', protect, async (req, res) => {
@@ -115,6 +145,97 @@ router.post('/', protect, adminOnly, async (req, res) => {
     const s = await Sample.create({ name:name.trim(), zone:zone.trim(), category:category||'' });
     res.json(s);
   } catch(e){ res.status(500).json({ error:e.message }); }
+});
+
+// ── Party-sample master endpoints ────────────────────────────────────────────
+
+// GET /api/samples/party — samples a given party holds.
+// Resolve the party by dealerId (preferred) → its code/name, then look up
+// holdings by code first, falling back to a normalized-name match so it still
+// works for dealers whose code hasn't been back-filled yet.
+router.get('/party', protect, async (req, res) => {
+  try {
+    let code = String(req.query.code || '').trim().toUpperCase();
+    let name = String(req.query.name || '').trim();
+
+    if(req.query.dealerId){
+      const Dealer = (await import('../models/Dealer.js')).default;
+      const d = await Dealer.findById(req.query.dealerId).lean();
+      if(d){ if(!code) code = String(d.code||'').toUpperCase(); if(!name) name = d.name || ''; }
+    }
+
+    // Match on the FULL dealer/party name (stored verbatim); the SSLxxxxx code
+    // is only a secondary key for dealers that were stamped on upload.
+    let rows = [];
+    if(name) rows = await PartySample.find({ partyName: exactNameRx(name) }).lean();
+    if(!rows.length && code) rows = await PartySample.find({ partyCode: code }).lean();
+    rows.sort((a,b)=> String(a.sampleName).localeCompare(String(b.sampleName)));
+    res.json({
+      code: code || (rows[0]?.partyCode || ''),
+      party: rows[0]?.partyName || name || '',
+      count: rows.length,
+      totalQty: rows.reduce((s,r)=> s + (Number(r.qty)||0), 0),
+      samples: rows.map(r=>({ id:String(r._id), sampleName:r.sampleName, qty:Number(r.qty)||0 })),
+    });
+  } catch(e){ res.status(500).json({ error:e.message }); }
+});
+
+// POST /api/samples/party-upload — replace the party-sample master (admin only).
+// Excel columns: Party Name | Screen Name | Total. Full-snapshot semantics:
+// the whole PartySample collection is rebuilt from the file. Also back-fills
+// each matched dealer's `code` so future look-ups match strictly by code.
+router.post('/party-upload', protect, adminOnly, upload.single('file'), async (req, res) => {
+  try {
+    if(!req.file) return res.status(400).json({ error:'file required' });
+    const wb   = XLSX.read(req.file.buffer, { type:'buffer' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:'' });
+    if(!rows.length) return res.status(400).json({ error:'No data' });
+
+    const docs = [];
+    const partyMap = new Map();  // normalized full name → { raw, code } (verbatim, for matching)
+    let skipped = 0;
+    for(const row of rows){
+      const keys = Object.keys(row);
+      const find = (...t) => { for(const x of t){ const k=keys.find(k=>k.toLowerCase().replace(/[\s_-]/g,'').includes(x.toLowerCase().replace(/[\s_-]/g,''))); if(k&&String(row[k]).trim()) return String(row[k]).trim(); } return ''; };
+      const partyRaw  = find('partyname','party','dealer','name');
+      const sampleName= find('screenname','screen','sample','product','item');
+      const qtyRaw    = find('total','qty','quantity','count');
+      if(!partyRaw || !sampleName){ skipped++; continue; }
+      const raw = String(partyRaw).trim();          // party name stored & matched verbatim
+      const { code } = splitParty(partyRaw);        // code kept only as a secondary key
+      const qty = Math.round(parseFloat(String(qtyRaw).replace(/[^\d.-]/g,'')) || 0) || 1;
+      docs.push({ partyCode:code, partyName:raw, sampleName, qty });
+      partyMap.set(normName(raw), { raw, code });
+    }
+    if(!docs.length) return res.status(400).json({ error:'No valid rows (need Party Name + Screen Name)' });
+
+    // Full refresh — this file is the complete master snapshot.
+    await PartySample.deleteMany({});
+    await PartySample.insertMany(docs, { ordered:false });
+
+    // Back-fill dealer codes by matching the FULL party name → dealer(s).
+    // The Excel party name is stored verbatim in the app, so we match as-is.
+    const Dealer = (await import('../models/Dealer.js')).default;
+    let dealersMatched = 0, partiesMatched = 0;
+    const unmatched = [];
+    for(const { raw, code } of partyMap.values()){
+      const r = await Dealer.updateMany({ name: exactNameRx(raw) }, code ? { $set:{ code } } : {});
+      if(r.matchedCount > 0){ partiesMatched++; dealersMatched += r.matchedCount; }
+      else if(unmatched.length < 50) unmatched.push(raw);
+    }
+
+    console.log(`[PARTY-SAMPLES] rows=${rows.length} inserted=${docs.length} skipped=${skipped} parties=${partyMap.size} partiesMatched=${partiesMatched} dealersMatched=${dealersMatched}`);
+    res.json({
+      rows: rows.length,
+      inserted: docs.length,
+      skipped,
+      parties: partyMap.size,
+      partiesMatched,
+      dealersMatched,
+      unmatchedCount: partyMap.size - partiesMatched,
+      unmatchedSample: unmatched.slice(0, 20),
+    });
+  } catch(e){ console.error('[PARTY-SAMPLES]', e.message); res.status(500).json({ error:e.message }); }
 });
 
 // DELETE /api/samples/:id — delete sample master (admin only)

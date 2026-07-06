@@ -18,6 +18,10 @@ const monthEntrySchema = new mongoose.Schema({
 const dealerSchema = new mongoose.Schema({
   name:         { type:String, required:true },
   salesman:     { type:String, required:true },
+  // ERP party code (e.g. 'SSL16566'), parsed from the sample-master upload's
+  // "Party Name-SSLxxxxx" column and back-filled by matching on name. Used as
+  // the reliable key to look up which samples this party holds.
+  code:         { type:String, default:'' },
   // Global info (updated each upload, used as fallback)
   city:         { type:String, default:'' },
   state:        { type:String, default:'' },

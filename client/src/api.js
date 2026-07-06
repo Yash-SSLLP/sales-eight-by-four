@@ -133,6 +133,9 @@ export const api = {
   unmarkSample:    (id)    => fetch(`${BASE}/samples/given/${id}`,{method:'DELETE',headers:authHeaders()}).then(handle),
   uploadSamples:   (file)  => { const fd=new FormData(); fd.append('file',file); return fetch(`${BASE}/samples/upload`,{method:'POST',headers:{Authorization:`Bearer ${getToken()}`},body:fd}).then(handle); },
   deleteSample:    (id)    => fetch(`${BASE}/samples/${id}`,{method:'DELETE',headers:authHeaders()}).then(handle),
+  // Party-sample master (Party Name | Screen Name | Total)
+  getPartySamples:    (params)=> fetch(`${BASE}/samples/party${params?'?'+params:''}`,{headers:authHeaders()}).then(handle),
+  uploadPartySamples: (file)  => { const fd=new FormData(); fd.append('file',file); return fetch(`${BASE}/samples/party-upload`,{method:'POST',headers:{Authorization:`Bearer ${getToken()}`},body:fd}).then(handle); },
 
   getMonthConfig:  ()    => fetch(`${BASE}/settings/months`,{headers:authHeaders()}).then(handle).catch(()=>null),
   saveMonthConfig: (cfg) => fetch(`${BASE}/settings/months`,{method:'POST',headers:authHeaders(),body:JSON.stringify(cfg)}).then(handle).catch(()=>null),

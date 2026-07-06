@@ -21,6 +21,7 @@ const monthEntrySchema = new mongoose.Schema({
 const dealerSchema = new mongoose.Schema({
   name:         { type:String, required:true },
   salesman:     { type:String, required:true },
+  code:         { type:String, default:'' },
   city:         { type:String, default:'' },
   state:        { type:String, default:'' },
   zone:         { type:String, default:'' },
@@ -60,7 +61,7 @@ const fmt = (d, MO=[]) => {
   });
   const monthsWithData=MO.map((m,i)=>(md[m]?.achieved>0||md[m]?.target>0)?i:-1).filter(i=>i>=0);
   return {
-    id:d._id?.toString(), name:d.name, salesman:d.salesman,
+    id:d._id?.toString(), name:d.name, salesman:d.salesman, code:d.code||'',
     city:d.city||'', state:d.state||'', zone:d.zone||'', status:d.status||'ACTIVE',
     category:d.category||'', categoryType:d.categoryType||'', target:d.target||0,
     avg6m:d.avg6m||0, creditDays:d.creditDays||0, creditLimit:d.creditLimit||0,

@@ -1,72 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
-import { RefreshCw, Package } from 'lucide-react';
-import { notify } from './Toast';
+import { RefreshCw, Package, Search } from 'lucide-react';
 
-const today = () => new Date().toISOString().slice(0,10);
+// Shows the samples a party (dealer) already holds, loaded from the
+// "Party Name | Screen Name | Total" sample-master upload. Read-only:
+// the data is the uploaded master snapshot, not an editable checklist.
+export default function SamplesTab({ dealer }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [q,       setQ]       = useState('');
 
-export default function SamplesTab({ dealer, currentUser }) {
-  const [samples,  setSamples]  = useState([]);
-  const [given,    setGiven]    = useState({}); // { sampleId: givenRecord }
-  const [loading,  setLoading]  = useState(true);
-  const [toggling, setToggling] = useState({}); // { sampleId: true } while saving
-  const [notes,    setNotes]    = useState({});  // { sampleId: noteText }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [dealer?.id]);
 
-  const dealerZone = (dealer.zone||'').toLowerCase().trim();
-
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = async () => {
+  const load = async () => {
     setLoading(true);
     try {
-      const [allSamples, givenList] = await Promise.all([
-        api.getSamples(),
-        api.getSamplesGiven(`dealerName=${encodeURIComponent(dealer.name)}`),
-      ]);
-      setSamples(allSamples || []);
-      // Build a map: sampleId -> givenRecord
-      const map = {};
-      (givenList || []).forEach(g => { map[g.sampleId] = g; });
-      setGiven(map);
-    } catch(e) { console.warn('Samples load failed:', e.message); }
+      const params = new URLSearchParams();
+      if(dealer?.id)   params.set('dealerId', dealer.id);
+      if(dealer?.code) params.set('code', dealer.code);
+      if(dealer?.name) params.set('name', dealer.name);
+      const res = await api.getPartySamples(params.toString());
+      setData(res || null);
+    } catch(e) { console.warn('Party samples load failed:', e.message); setData(null); }
     setLoading(false);
   };
-
-  // Toggle — if given unmark it, if not given mark it
-  const toggle = async (sample) => {
-    setToggling(t => ({ ...t, [sample._id]: true }));
-    try {
-      if(given[sample._id]) {
-        // Already given — unmark (delete)
-        await api.unmarkSample(given[sample._id]._id);
-        setGiven(g => { const n = { ...g }; delete n[sample._id]; return n; });
-      } else {
-        // Not given — mark as given
-        const record = await api.markSampleGiven({
-          dealerName: dealer.name,
-          dealerId:   dealer.id || '',
-          sampleId:   sample._id,
-          sampleName: sample.name,
-          zone:       sample.zone,
-          salesman:   dealer.salesman,
-          givenDate:  today(),
-          notes:      notes[sample._id] || '',
-        });
-        setGiven(g => ({ ...g, [sample._id]: record }));
-      }
-    } catch(e) { notify.error(e.message); }
-    setToggling(t => { const n = { ...t }; delete n[sample._id]; return n; });
-  };
-
-  // Filter samples to dealer's zone
-  const zoneSamples = dealerZone
-    ? samples.filter(s => s.zone.toLowerCase().trim() === dealerZone)
-    : samples;
-
-  const givenCount   = zoneSamples.filter(s => given[s._id]).length;
-  const totalCount   = zoneSamples.length;
-  const pendingCount = totalCount - givenCount;
-  const pct          = totalCount > 0 ? Math.round((givenCount / totalCount) * 100) : 0;
 
   if(loading) return (
     <div style={{textAlign:'center',padding:40,color:'var(--t3)'}}>
@@ -75,154 +32,74 @@ export default function SamplesTab({ dealer, currentUser }) {
     </div>
   );
 
+  const samples = data?.samples || [];
+
   if(samples.length === 0) return (
     <div style={{textAlign:'center',padding:40,color:'var(--t3)'}}>
       <Package size={32} style={{marginBottom:10,opacity:.3}}/>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>No samples in master yet</div>
-      <div style={{fontSize:11}}>Admin Panel → 📦 Sample Master → Upload or Add samples</div>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>No samples recorded for this party</div>
+      <div style={{fontSize:11,maxWidth:260,margin:'0 auto'}}>
+        {dealer?.code
+          ? `Party code ${dealer.code} has no rows in the sample master.`
+          : 'This party isn’t linked to a code yet. Admin Panel → 📦 Sample Master → upload the master Excel to match it.'}
+      </div>
     </div>
   );
 
-  if(zoneSamples.length === 0) return (
-    <div style={{textAlign:'center',padding:40,color:'var(--t3)'}}>
-      <Package size={32} style={{marginBottom:10,opacity:.3}}/>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>No samples for zone "{dealer.zone}"</div>
-      <div style={{fontSize:11}}>Add samples for this zone in Admin Panel → 📦 Sample Master</div>
-    </div>
-  );
+  const filtered = q.trim()
+    ? samples.filter(s => s.sampleName.toLowerCase().includes(q.toLowerCase()))
+    : samples;
 
   return (
     <div>
       {/* Stats row */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
         {[
-          {l:'Total',   v:totalCount,   c:'var(--acc)'},
-          {l:'Given',   v:givenCount,   c:'#34d399'},
-          {l:'Pending', v:pendingCount, c:'#f87171'},
+          {l:'Samples',   v:data.count,    c:'var(--acc)'},
+          {l:'Total Qty', v:data.totalQty, c:'#34d399'},
+          {l:'Code',      v:data.code||'—',c:'#fbbf24', small:true},
         ].map(k=>(
           <div key={k.l} className="stat-card">
             <div style={{fontSize:9,color:'var(--t3)',textTransform:'uppercase',marginBottom:4}}>{k.l}</div>
-            <div style={{fontSize:22,fontWeight:700,color:k.c}}>{k.v}</div>
+            <div style={{fontSize:k.small?14:22,fontWeight:700,color:k.c,wordBreak:'break-all'}}>{k.v}</div>
           </div>
         ))}
       </div>
 
-      {/* Progress bar */}
-      <div style={{marginBottom:14}}>
-        <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--t3)',marginBottom:4}}>
-          <span>Zone: <strong style={{color:'var(--acc)'}}>{dealer.zone||'—'}</strong></span>
-          <span style={{fontWeight:700,color:pct===100?'#34d399':pct>50?'#fbbf24':'#f87171'}}>{pct}% given</span>
-        </div>
-        <div style={{height:6,background:'var(--b2)',borderRadius:3,overflow:'hidden'}}>
-          <div style={{
-            height:'100%', width:`${pct}%`,
-            background:pct===100?'#34d399':pct>50?'#fbbf24':'#f87171',
-            borderRadius:3, transition:'width .4s ease',
-          }}/>
-        </div>
+      {/* Search */}
+      <div style={{position:'relative',marginBottom:12}}>
+        <Search size={13} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'var(--t3)'}}/>
+        <input
+          className="inp"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search samples..."
+          style={{width:'100%',paddingLeft:30}}
+        />
       </div>
 
-      {/* Sample list — pending first, then given */}
+      {/* Sample list */}
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
-        {/* Pending */}
-        {pendingCount > 0 && (
-          <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2,marginTop:4}}>
-            ⬜ Pending ({pendingCount})
-          </div>
-        )}
-        {zoneSamples.filter(s => !given[s._id]).map(s => (
-          <div key={s._id} style={{
+        {filtered.map((s, i) => (
+          <div key={s.id} style={{
             display:'flex', alignItems:'center', gap:10,
             padding:'10px 12px', borderRadius:8,
-            background:'rgba(248,113,113,0.04)',
-            border:'1px solid rgba(248,113,113,0.15)',
-            transition:'all .2s',
+            background:'var(--bg2)',
+            border:'1px solid var(--b2)',
           }}>
-            {/* Checkbox toggle */}
-            <button
-              onClick={() => toggle(s)}
-              disabled={toggling[s._id]}
-              style={{
-                width:22, height:22, borderRadius:5,
-                border:'2px solid var(--b2)',
-                background:'transparent',
-                cursor:'pointer', flexShrink:0,
-                display:'flex', alignItems:'center', justifyContent:'center',
-                transition:'all .15s',
-              }}>
-              {toggling[s._id]
-                ? <RefreshCw size={12} style={{animation:'spin .7s linear infinite',color:'var(--acc)'}}/>
-                : null}
-            </button>
-
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:500,color:'var(--t1)'}}>{s.name}</div>
-              {s.category && <div style={{fontSize:10,color:'var(--t3)'}}>{s.category}</div>}
-            </div>
-
-            {/* Note input */}
-            <input
-              className="inp"
-              value={notes[s._id]||''}
-              onChange={e => setNotes(n => ({...n, [s._id]: e.target.value}))}
-              placeholder="Note..."
-              style={{width:110, fontSize:11}}
-              onKeyDown={e => e.key==='Enter' && toggle(s)}
-            />
-
+            <span style={{fontSize:11,color:'var(--t3)',minWidth:22,textAlign:'right'}}>{i+1}</span>
+            <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,color:'var(--t1)'}}>{s.sampleName}</div>
             <span style={{
-              fontSize:10, padding:'2px 8px', borderRadius:4, flexShrink:0,
-              background:'rgba(248,113,113,0.12)', color:'#f87171',
-            }}>Pending</span>
+              fontSize:11, fontWeight:600, padding:'2px 10px', borderRadius:20, flexShrink:0,
+              background:'rgba(52,211,153,0.12)', color:'#34d399',
+            }}>×{s.qty}</span>
           </div>
         ))}
-
-        {/* Given */}
-        {givenCount > 0 && (
-          <div style={{fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2,marginTop:8}}>
-            ✅ Given ({givenCount})
+        {filtered.length === 0 && (
+          <div style={{textAlign:'center',padding:20,fontSize:12,color:'var(--t3)'}}>
+            No samples match “{q}”.
           </div>
         )}
-        {zoneSamples.filter(s => given[s._id]).map(s => {
-          const g = given[s._id];
-          return (
-            <div key={s._id} style={{
-              display:'flex', alignItems:'center', gap:10,
-              padding:'10px 12px', borderRadius:8,
-              background:'rgba(52,211,153,0.04)',
-              border:'1px solid rgba(52,211,153,0.15)',
-              opacity: 0.75, transition:'all .2s',
-            }}>
-              {/* Checked checkbox — click to uncheck */}
-              <button
-                onClick={() => toggle(s)}
-                disabled={toggling[s._id]}
-                style={{
-                  width:22, height:22, borderRadius:5,
-                  border:'2px solid #34d399',
-                  background:'#34d399',
-                  cursor:'pointer', flexShrink:0,
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  transition:'all .15s',
-                }}>
-                {toggling[s._id]
-                  ? <RefreshCw size={12} style={{animation:'spin .7s linear infinite',color:'#fff'}}/>
-                  : <span style={{color:'#fff',fontSize:13,lineHeight:1}}>✓</span>}
-              </button>
-
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:500,color:'var(--t1)',textDecoration:'line-through',opacity:.6}}>{s.name}</div>
-                {s.category && <div style={{fontSize:10,color:'var(--t3)'}}>{s.category}</div>}
-              </div>
-
-              <div style={{textAlign:'right',flexShrink:0}}>
-                <div style={{fontSize:11,color:'#34d399',fontWeight:600}}>✓ Given</div>
-                <div style={{fontSize:9,color:'var(--t3)'}}>{g.givenDate}</div>
-                {g.notes && <div style={{fontSize:9,color:'var(--t3)',maxWidth:80,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.notes}</div>}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );

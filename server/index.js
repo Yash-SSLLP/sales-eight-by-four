@@ -4,6 +4,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 
 if (dns.getServers().every(s => s === '127.0.0.1' || s === '::1')) {
   dns.setServers(['8.8.8.8', '1.1.1.1']);
@@ -30,6 +31,41 @@ app.use(cors({
 }));
 app.use(express.json({ limit:'50mb' }));
 app.use(express.urlencoded({ extended:true }));
+
+// ── Request logger: who is logged in + which page are they on ──────────────
+// Purely for visibility in the server logs. Decodes the JWT (no signature
+// check — logging only, never rejects a request) to identify the user, and
+// maps the API path to the app "page" the user is viewing. Does not change
+// any request/response behaviour.
+const PAGE_BY_PREFIX = {
+  auth:        'Login / Users',
+  dealers:     'Dealers',
+  notes:       'Notes',
+  outstanding: 'Outstanding',
+  settings:    'Settings',
+  followups:   'Follow-ups',
+  samples:     'Samples',
+  crm:         'CRM',
+  categories:  'Categories',
+  sales:       'Sales',
+};
+app.use((req, _res, next) => {
+  try {
+    const auth = req.headers.authorization;
+    let who = 'anonymous';
+    if (auth?.startsWith('Bearer ')) {
+      const decoded = jwt.decode(auth.split(' ')[1]);
+      if (decoded?.id) {
+        who = `${decoded.name || decoded.id} (${decoded.id}, ${decoded.role || '?'})`;
+        if (decoded.impersonatedBy) who += ` [impersonated by ${decoded.impersonatedBy}]`;
+      }
+    }
+    const prefix = req.path.split('/').filter(Boolean)[1]; // e.g. 'outstanding' from '/api/outstanding/...'
+    const page = PAGE_BY_PREFIX[prefix] || prefix || '—';
+    console.log(`[USER] ${who} → ${page} page | ${req.method} ${req.originalUrl}`);
+  } catch { /* logging must never break a request */ }
+  next();
+});
 
 app.use('/api/auth',        authRoutes);
 app.use('/api/dealers',     dealerRoutes);

@@ -407,7 +407,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
   const [activeDealer, setActiveDealer] = useState(null);
 
   const [popupContext, setPopupContext] = useState(null);
-  const [monthRange,   setMonthRange]   = useState('all'); // 'all' | 'last3'
+  const [monthRange,   setMonthRange]   = useState('last3'); // 'all' | 'last3'
   const fileRef = useRef();
 
   useEffect(()=>{ loadFromDB(); loadFollowups(); },[]);

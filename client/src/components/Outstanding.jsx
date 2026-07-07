@@ -407,6 +407,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
   const [activeDealer, setActiveDealer] = useState(null);
 
   const [popupContext, setPopupContext] = useState(null);
+  const [monthRange,   setMonthRange]   = useState('all'); // 'all' | 'last3'
   const fileRef = useRef();
 
   useEffect(()=>{ loadFromDB(); loadFollowups(); },[]);
@@ -470,6 +471,11 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
     filteredOutstanding.forEach(d=>d.monthCols?.forEach(m=>cols.add(m)));
     return [...cols];
   },[filteredOutstanding]);
+
+  // Which month columns to actually render — all, or just the most recent 3.
+  const displayMonthCols = useMemo(()=>(
+    monthRange==='last3' ? allMonthCols.slice(-3) : allMonthCols
+  ),[allMonthCols, monthRange]);
 
   const dealerSmMap = useMemo(()=>{
     const map={};
@@ -688,7 +694,23 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
       {}
       {allMonthCols.length>0&&(
         <div className="card" style={{marginBottom:14,padding:0,overflow:'hidden'}}>
-          <div style={{padding:'12px 14px',borderBottom:'1px solid var(--b1)',fontSize:12,fontWeight:600}}>Month-wise Summary</div>
+          <div style={{padding:'12px 14px',borderBottom:'1px solid var(--b1)',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+            <span>Month-wise Summary</span>
+            {allMonthCols.length>3&&(
+              <div style={{display:'flex',background:'var(--bg2)',borderRadius:6,padding:2,gap:2}}>
+                {[
+                  {id:'all',   label:'All months'},
+                  {id:'last3', label:'Last 3 months'},
+                ].map(o=>(
+                  <button key={o.id} onClick={()=>setMonthRange(o.id)} style={{
+                    padding:'3px 10px',borderRadius:5,fontSize:11,fontWeight:600,cursor:'pointer',border:'none',
+                    background:monthRange===o.id?'var(--acc)':'transparent',
+                    color:monthRange===o.id?'#fff':'var(--t3)',
+                  }}>{o.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <div style={{overflowX:'auto'}}>
             <table>
               <thead><tr>
@@ -696,7 +718,8 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
                 <th style={{textAlign:'right'}}>Dealers Due</th><th style={{textAlign:'right'}}>Change</th>
               </tr></thead>
               <tbody>
-                {allMonthCols.map((month,mi)=>{
+                {displayMonthCols.map((month)=>{
+                  const mi=allMonthCols.indexOf(month);
                   const vals=filteredOutstanding.map(d=>d.monthlyOutstanding[month]||0);
                   const total=vals.reduce((a,b)=>a+b,0);
                   const due=vals.filter(v=>v>0).length;
@@ -750,7 +773,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
             <table>
               <thead><tr>
                 <th>#</th><th>Dealer</th>
-                {allMonthCols.map(m=><th key={m} style={{textAlign:'right'}}>{m}</th>)}
+                {displayMonthCols.map(m=><th key={m} style={{textAlign:'right'}}>{m}</th>)}
                 <th style={{textAlign:'center'}}>Follow-up</th>
               </tr></thead>
               <tbody>
@@ -856,7 +879,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
                             </div>
                           )}
                         </td>
-                        {allMonthCols.map(m=>{
+                        {displayMonthCols.map(m=>{
                           const v=d.monthlyOutstanding[m]||0;
                           const mi2=allMonthCols.indexOf(m);
                           const prev=mi2>0?d.monthlyOutstanding[allMonthCols[mi2-1]]||0:v;
@@ -907,7 +930,7 @@ export default function Outstanding({ dealers, users, onOpenDealer, currentUser,
               </tbody>
               <tfoot><tr>
                 <td colSpan={2} style={{fontWeight:700}}>TOTAL</td>
-                {allMonthCols.map(m=>{
+                {displayMonthCols.map(m=>{
                   const t=filtered.reduce((s,d)=>s+(d.monthlyOutstanding[m]||0),0);
                   return<td key={m} style={{textAlign:'right',fontWeight:700,color:'#f87171'}}>{t>0?fmt(t):'—'}</td>;
                 })}

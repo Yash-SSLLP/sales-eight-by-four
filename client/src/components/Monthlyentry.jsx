@@ -696,22 +696,27 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
 
   const handleCatUploadClick = () => catFileRef.current?.click();
 
-  // Admin: full clean-slate for a month.
+  // Admin: clean-slate for ONE month only.
   // Wipes BOTH (a) category-wise Sale rows for the month, AND (b) each dealer's
-  // monthlyData[month] (Target / Achieved / Status / Zone / City / etc.). Then
-  // runs dealer dedupe so any duplicate dealer rows from a bad upload are
-  // collapsed too. Dealer master fields (name, salesman, city, etc.) are kept.
+  // monthlyData[month] (Target / Achieved / Status / Zone / City / etc.).
+  // Dealer master records, OTHER months, and the whole dealer collection are
+  // left untouched — this is deliberately scoped to `month` and nothing else.
+  //
+  // NOTE: this used to also run global dealer clean-ups (delete-by-source,
+  // dedupe, suffix-dupe cleanup). Those operate on the ENTIRE database across
+  // all months, so they made a single-month reset behave like a full wipe.
+  // They have been removed from here — run them from their own buttons if you
+  // actually want a global dealer clean-up.
   const handleCatDeleteMonth = async () => {
     const ym = toYearMonth(month);
     if (!ym) { setCatMsg({ type:'error', text:`Could not understand month "${month}".` }); return; }
     const ok = await confirmDialog({
-      title: `Reset ALL data for ${month}?`,
+      title: `Reset data for ${month}?`,
       message: [
         `This will wipe everything for ${month} so you can re-upload cleanly:`,
         '',
         `• Every category-wise sale row for ${month}`,
         `• Every dealer's Target / Achieved / Status / Zone / City for ${month}`,
-        `• Duplicate dealer rows (same name + same salesman) created during the bad upload`,
         '',
         'Dealer master records and OTHER months are NOT touched.',
       ].join('\n'),
@@ -724,25 +729,13 @@ export default function MonthlyEntry({ dealers, users, currentUser, onUpdateDeal
     try {
       // 1. Delete category sale rows for the YYYY-MM month
       const r1 = await api.salesDeleteMonth(ym).catch(e => ({ deleted: 0, _err: e.message }));
-      // 2. Delete dealer.monthlyData[label] for all dealers
+      // 2. Delete dealer.monthlyData[label] for all dealers (month-scoped $unset)
       const r2 = await api.deleteMonth(month).catch(e => ({ dealersTouched: 0, _err: e.message }));
-      // 3. Remove every dealer created by the category-wise Excel upload
-      //    (those carry source='cat-upload' from the server). Sale rows are
-      //    re-pointed at the matching original dealer first.
-      const r0 = await api.deleteDealersBySource('cat-upload', false)
-                          .catch(e => ({ deleted: 0, migrated: 0, _err: e.message }));
-      // 4a. Dedupe exact-match dealers (same name + same salesman)
-      const r3 = await api.dedupeDealers(false).catch(e => ({ duplicatesRemoved: 0, _err: e.message }));
-      // 4b. Dedupe suffix-dupes ("X pranav" when "X" exists for salesman Pranav)
-      const r4 = await api.cleanupSuffixDupes(false).catch(e => ({ deleted: 0, _err: e.message }));
 
       const parts = [
         `Reset complete for ${month}.`,
-        `Bad-upload dealers removed: ${r0.deleted || 0} (sale rows migrated: ${r0.migrated || 0}).`,
         `Category sale rows deleted: ${r1.deleted || 0}.`,
         `Dealer-month records cleared: ${r2.dealersTouched || 0}.`,
-        `Exact duplicate dealers removed: ${r3.duplicatesRemoved ?? r3.removed ?? 0}.`,
-        `Salesman-suffix duplicate dealers removed: ${r4.deleted || 0} (sale rows migrated: ${r4.migrated || 0}).`,
         `You can re-upload cleanly now.`,
       ];
       setCatMsg({ type:'success', text: parts.join(' ') });

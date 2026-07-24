@@ -101,7 +101,9 @@ export default function Reports({ dealers, users, currentUser, monthConfig, outs
       if(!bySalesman[id]) bySalesman[id] = { dealers:[], name: users[id]?.name || id };
       bySalesman[id].dealers.push(d);
     });
-    const rows = Object.values(bySalesman).map(g => {
+    // Hide salesmen with zero sales across their entire history (any month).
+    const careerAchieved = g => g.dealers.reduce((s,d)=> s + (Array.isArray(d.months)?d.months.reduce((a,b)=>a+(Number(b)||0),0):0), 0);
+    const rows = Object.values(bySalesman).filter(g => careerAchieved(g) > 0).map(g => {
       const row = [g.name, g.dealers.length];
       let totT = 0, totA = 0;
       rangeMonths.forEach((m, i) => {

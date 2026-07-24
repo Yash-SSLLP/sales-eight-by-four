@@ -1283,7 +1283,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Users, Target, Award, Activity, TrendingUp, Clock, Bell, AlertTriangle, Search, MapPin, Star, ArrowUpRight, ArrowDownRight, X, GripVertical, Hash } from 'lucide-react';
 import { MO as MO_CONST, CURRENT_MONTH_IDX } from '../constants';
-import { pct, spct, pclr, trendPct, forecast, monthTarget } from '../utils';
+import { pct, spct, pclr, trendPct, forecast, monthTarget, salesmenWithSales } from '../utils';
 import { useMonth } from '../context';
 import { StatusBadge, Avatar, MiniBars, StatCard, MultiSelect } from './UI';
 import MapView from './MapView';
@@ -2020,7 +2020,7 @@ const Overview=({dealers,currentUser,users,notes,onOpenDealer,onNavigate})=>{
             <input className="inp" style={{width:200,paddingLeft:30,fontSize:12}} placeholder="Quick search..." value={overviewSearch} onChange={e=>setOverviewSearch(e.target.value)}/>
           </div>
           {(currentUser.role==='admin'||currentUser.role==='superadmin')&&(
-            <MultiSelect options={Object.values(users).filter(u=>u.role==='salesman').map(s=>s.id)} selected={overviewSm?[overviewSm]:[]}
+            <MultiSelect options={salesmenWithSales(users,dealers).map(s=>s.id)} selected={overviewSm?[overviewSm]:[]}
               onChange={v=>setOverviewSm(v.length?v[v.length-1]:'')} placeholder="All Salesmen"
               renderOption={id=>{const s=users[id];return s?<div style={{display:'flex',alignItems:'center',gap:6}}><Avatar user={s} size={18}/><span style={{fontSize:12}}>{s.name}</span></div>:<span>{id}</span>;}}/>
           )}

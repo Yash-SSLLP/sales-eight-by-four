@@ -262,7 +262,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, Target, Award, Activity, RefreshCw, Calendar, Plus, Trash2, Check, LogIn, UserPlus, ChevronDown, ShieldCheck, Shield, Edit3 } from 'lucide-react';
 import { MO as MO_CONST } from '../constants';
-import { pct, spct, pclr, monthTarget } from '../utils';
+import { pct, spct, pclr, monthTarget, salesmenWithSales } from '../utils';
 import { useMonth } from '../context';
 import { Avatar, KPI, StatCard } from './UI';
 import CategoryDrillChart from './CategoryDrillChart';
@@ -284,7 +284,8 @@ const AdminPanel=({dealers,users,setUsers,setShowUM,onSync,syncing,lastSync,sync
   // when the user explicitly enters "Edit" mode. Prevents accidental
   // remove-month clicks while just browsing.
   const [monthsEditMode, setMonthsEditMode] = useState(false);
-  const sms=Object.values(users).filter(u=>u.role==='salesman');
+  // Analytics comparison/performance: only salesmen with career sales (hide never-sold)
+  const sms=useMemo(()=>salesmenWithSales(users,dealers),[users,dealers]);
 
   // ── Login-as dropdown (superadmin only) ─────────────────────────────────
   const isSuperAdmin = currentUser?.role === 'superadmin';

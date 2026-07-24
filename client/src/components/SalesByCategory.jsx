@@ -317,6 +317,9 @@ const SalesByCategory = ({ currentUser, users={}, dealers=[], outstandingData=[]
         achievementPct: totalPerCatTarget > 0 ? Math.round(totalAch / totalPerCatTarget * 100) : null,
       };
     }).filter(e => e.smName !== '_none' && e.smName !== '_unknown')
+      // Hide salesmen with zero sales across their ENTIRE history (all months),
+      // not just the viewed month — they reappear once any data is fed in.
+      .filter(e => (e.dealers || []).some(d => Array.isArray(d.months) && d.months.some(v => Number(v) > 0)))
       .sort((a,b) => (a.region || '').localeCompare(b.region || '') || (b.totalAch - a.totalAch));
     return rows;
   }, [dealers, users, byDealer, excluded, outstandingData, catTargets, categories]);

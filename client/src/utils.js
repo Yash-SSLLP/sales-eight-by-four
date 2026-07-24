@@ -1133,6 +1133,23 @@ export const trendPct = (months) => {
 };
 export const forecast = (months) => Math.round(months.slice(-3).reduce((a,b)=>a+b,0)/3);
 
+// Salesmen who have booked at least one unit in their ENTIRE history (any
+// month's achieved > 0). Used to hide never-sold salesmen from analytics /
+// dashboard views until data is fed for them. Data-entry & assignment pickers
+// (Monthly Entry, Sales Entry, reassignment, CRM, etc.) keep the full list so
+// a new salesman can still receive their first upload. Returns user objects,
+// so it drop-in replaces `Object.values(users).filter(u=>u.role==='salesman')`.
+export function salesmenWithSales(users, dealers){
+  const withData = new Set();
+  for(const d of (dealers||[])){
+    const sid = d?.salesman;
+    if(!sid || withData.has(sid)) continue;
+    const tot = Array.isArray(d.months) ? d.months.reduce((a,b)=>a+(Number(b)||0),0) : 0;
+    if(tot>0) withData.add(sid);
+  }
+  return Object.values(users||{}).filter(u=>u?.role==='salesman' && withData.has(u.id));
+}
+
 export const storage = {
   async get(key,fallback=null){
     try{ if(typeof window!=='undefined'&&window.storage){ const r=await window.storage.get(key); return r?JSON.parse(r.value):fallback; } }catch(e){}

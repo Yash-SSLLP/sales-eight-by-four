@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { MO as MO_CONST, CURRENT_MONTH_IDX } from '../constants';
-import { pct, spct, pclr, trendPct } from '../utils';
+import { pct, spct, pclr, trendPct, salesmenWithSales } from '../utils';
 import { useMonth } from '../context';
 import { Avatar, MiniBars, KPI } from './UI';
 import CategoryDrillChart from './CategoryDrillChart';
@@ -11,12 +11,14 @@ const MonthlyTrend=({dealers,currentUser,users,onOpenDealer})=>{
   const MO = ctxMO || MO_CONST;
   const [filter,setFilter]=useState('all');
   const isAdmin=currentUser.role==='admin'||currentUser.role==='superadmin';
+  // Only salesmen with career sales appear in analytics (filter buttons + chart series)
+  const activeSalesmen=useMemo(()=>salesmenWithSales(users,dealers),[users,dealers]);
   const baseFiltered=useMemo(()=>filter==='all'?dealers:dealers.filter(x=>x.salesman===filter),[dealers,filter]);
   const totals=MO.map((_,i)=>baseFiltered.reduce((s,x)=>s+(x.months[i]||0),0));
   const showStacked=isAdmin&&filter==='all';
   const multiData=MO.map((m,i)=>{
     const row={month:m.slice(0,3)};
-    if(showStacked){Object.values(users).filter(u=>u.role==='salesman').forEach(s=>{row[s.name]=dealers.filter(d=>d.salesman===s.id).reduce((sum,d)=>sum+(d.months[i]||0),0);});}
+    if(showStacked){activeSalesmen.forEach(s=>{row[s.name]=dealers.filter(d=>d.salesman===s.id).reduce((sum,d)=>sum+(d.months[i]||0),0);});}
     else row.units=totals[i];
     return row;
   });
@@ -32,7 +34,7 @@ const MonthlyTrend=({dealers,currentUser,users,onOpenDealer})=>{
         {isAdmin&&(
           <div className="row" style={{flexWrap:'wrap',gap:6}}>
             <button className={`btn ${filter==='all'?'btnp':''}`} onClick={()=>setFilter('all')}>All</button>
-            {Object.values(users).filter(u=>u.role==='salesman').map(s=>(
+            {activeSalesmen.map(s=>(
               <button key={s.id} className="btn" style={filter===s.id?{background:s.color+'22',color:s.color,borderColor:s.color+'66'}:{}} onClick={()=>setFilter(s.id)}>{s.name.split(' ')[0]}</button>
             ))}
           </div>
@@ -49,7 +51,7 @@ const MonthlyTrend=({dealers,currentUser,users,onOpenDealer})=>{
             <Tooltip contentStyle={{background:'var(--bg2)',border:'1px solid var(--b2)',borderRadius:8}}/>
             <ReferenceLine x={MO[selectedMonthIdx].slice(0,3)} stroke="#fbbf24" strokeWidth={2} label={{value:'◀ viewing',fill:'#fbbf24',fontSize:10}}/>
             {showStacked?(
-              <>{Object.values(users).filter(u=>u.role==='salesman').map(s=>(<Area key={s.id} type="monotone" dataKey={s.name} stackId="1" stroke={s.color} fill={s.color} fillOpacity={0.6}/>))}</>
+              <>{activeSalesmen.map(s=>(<Area key={s.id} type="monotone" dataKey={s.name} stackId="1" stroke={s.color} fill={s.color} fillOpacity={0.6}/>))}</>
             ):(
               <Area type="monotone" dataKey="units" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} label={{position:'top',fill:'var(--t2)',fontSize:10,fontWeight:600}}/>
             )}
